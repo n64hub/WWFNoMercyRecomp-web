@@ -19,7 +19,12 @@
 #define SDL_MAIN_HANDLED
 #include "SDL.h"
 #include "SDL_syswm.h"
-#include "nfd.h"
+#ifndef __EMSCRIPTEN__
+#include "nfd.h" // a browser has no native file dialogs; RecompFrontend asks the page instead
+#endif
+#ifdef __EMSCRIPTEN__
+#include "audio_output.h"
+#endif
 
 #include "ultramodern/ultra64.h"
 #include "ultramodern/ultramodern.hpp"
@@ -390,6 +395,49 @@ static void virtual_drain() {
     g_virtual_last_ms = now;
 }
 
+#ifdef __EMSCRIPTEN__
+// On a page the sound goes to N64Recomp-browser's AudioWorklet (audio_output.h), not SDL's queue, which plays from the
+// page's thread where WebGPU's work runs and broke up whenever that thread was busy. Its ring plays at the page's audio
+// context's rate, so the game's frames are resampled to it (linear, the phase carried from one batch to the next).
+static bool g_web_audio_open = false;
+static uint32_t g_web_output_rate = 48000;
+static double g_web_phase = 0.0;
+static float g_web_last[2] = {0.0f, 0.0f};
+
+static bool reset_audio(uint32_t freq) {
+    if (!g_web_audio_open) {
+        g_web_output_rate = n64recomp_browser::audio::open(input_channels);
+        g_web_audio_open = true;
+    }
+    g_sample_rate = freq;
+    g_web_phase = 0.0;
+    return true;
+}
+
+static void web_queue(const int16_t* frames, size_t frame_count) {
+    static std::vector<float> out;
+    const double step = double(g_sample_rate) / double(g_web_output_rate);
+    out.clear();
+    // Position p runs over the previous batch's last frame (-1) and this batch's frames (0 .. frame_count - 1).
+    double p = g_web_phase - 1.0;
+    while (p < double(frame_count) - 1.0) {
+        const long i = long(std::floor(p));
+        const float t = float(p - double(i));
+        for (int c = 0; c < 2; c++) {
+            const float a = (i < 0) ? g_web_last[c] : frames[size_t(i) * 2 + c] * (1.0f / 32768.0f);
+            const float b = frames[size_t(i + 1) * 2 + c] * (1.0f / 32768.0f);
+            out.push_back(a + (b - a) * t);
+        }
+        p += step;
+    }
+    g_web_phase = p - (double(frame_count) - 1.0);
+    if (frame_count > 0) {
+        g_web_last[0] = frames[(frame_count - 1) * 2 + 0] * (1.0f / 32768.0f);
+        g_web_last[1] = frames[(frame_count - 1) * 2 + 1] * (1.0f / 32768.0f);
+    }
+    n64recomp_browser::audio::queue(out.data(), out.size() / 2);
+}
+#else
 static bool reset_audio(uint32_t freq) {
     // Diagnostic: every open/close drops the whole SDL queue, so frequent calls here
     // zero osAiGetLength and free-run the game's audio generator (bringup-plan session 4).
@@ -417,11 +465,16 @@ static bool reset_audio(uint32_t freq) {
     SDL_PauseAudioDevice(g_audio_device, 0);
     return true;
 }
+#endif
 
 void set_frequency(uint32_t freq) {
     // Reopening the device discards SDL's entire queued buffer, so skip redundant calls
     // (WM2000 re-sets 28800 on menu transitions — each one was an audible drop).
+#ifdef __EMSCRIPTEN__
+    if (g_web_audio_open && freq == g_requested_rate) return;
+#else
     if (g_audio_device && freq == g_requested_rate) return;
+#endif
     g_requested_rate = freq;
     reset_audio(freq);
 }
@@ -448,12 +501,16 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
         }
     }
     uint32_t queued_frames_before = (uint32_t)get_frames_remaining();
+#ifdef __EMSCRIPTEN__
+    web_queue(buf.data(), sample_count / input_channels);
+#else
     if (g_audio_device) {
         SDL_QueueAudio(g_audio_device, buf.data(), (Uint32)(sample_count * sizeof(int16_t)));
     } else {
         virtual_drain();
         g_virtual_frames += sample_count / input_channels;
     }
+#endif
     // Diagnostic (1/s): audio health. queued_frames_before==0 means the device ran dry and
     // SDL fed silence (an audible pop); minlvl is the low-water mark in frames; maxgap the
     // longest interval between batches (starvation if it exceeds the buffered duration).
@@ -477,6 +534,10 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
 }
 
 size_t get_frames_remaining() {
+#ifdef __EMSCRIPTEN__
+    // The ring's frames at the page's rate, in the game's.
+    return size_t(uint64_t(n64recomp_browser::audio::queued_frames()) * g_sample_rate / g_web_output_rate);
+#endif
     if (!g_audio_device) {
         virtual_drain();
         return (size_t)g_virtual_frames;
@@ -1231,7 +1292,9 @@ int main(int argc, char** argv) {
     SDL_setenv("SDL_AUDIODRIVER", "wasapi", true);
 #endif
     SDL_SetMainReady();
+#ifndef __EMSCRIPTEN__
     NFD_Init();
+#endif
 
     SDL_InitSubSystem(SDL_INIT_AUDIO);
     reset_audio(32000);
@@ -1616,6 +1679,8 @@ int main(int argc, char** argv) {
         input_callbacks, gfx_callbacks, events_callbacks, error_callbacks, threads_callbacks);
     fprintf(stderr, "[wcw] recomp::start returned\n");
 
+#ifndef __EMSCRIPTEN__
     NFD_Quit();
+#endif
     return 0;
 }

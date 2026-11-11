@@ -31,7 +31,8 @@
 # N64Recomp: the port's tail calls for the live recompiler and the web's RECOMP_TAIL_CALL in the C it writes are both
 # kept; the port's recorded jump table ranges come first, the web's section lookup outside them.
 # RecompFrontend: the web's profiles are made first, then the port's plug-and-play assignment, so the first pad
-# connected on a page is player 1. The port's HDR menu composite is off on a page.
+# connected on a page is player 1. The port's HDR menu composite is off on a page. As the port's own web change, its
+# Smooth framerate is the display's rate on a page (framerate_rules.cpp), as every page interpolates to it.
 rt64 CMakeLists.txt
 rt64 src/common/rt64_tmem_hasher.h
 rt64 src/gbi/rt64_gbi.cpp
@@ -73,3 +74,5 @@ N64Recomp src/recompilation.cpp
 RecompFrontend recompinput/src/input_events.cpp
 RecompFrontend recompui/src/renderer/ui_renderer.cpp
 RecompFrontend recompui/CMakeLists.txt
+RecompFrontend recompui/src/config/framerate_rules.cpp
+RecompFrontend recompui/src/config/ui_config_tab_graphics.cpp

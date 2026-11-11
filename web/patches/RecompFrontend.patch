@@ -185,6 +185,41 @@ index b23f9fd..6f32ba5 100644
  endif()
  
  target_compile_options(recompui PRIVATE
+diff --git a/recompui/src/config/framerate_rules.cpp b/recompui/src/config/framerate_rules.cpp
+index 00234ae..75a1479 100644
+--- a/recompui/src/config/framerate_rules.cpp
++++ b/recompui/src/config/framerate_rules.cpp
+@@ -31,7 +31,13 @@ namespace recompui::framerate {
+             manual_value = int(smooth_rate * 2);
+         }
+         else if (option == RefreshRate::Manual) {
++#ifdef __EMSCRIPTEN__
++            // On a page Smooth interpolates to the display's rate, whatever it is (60, 120, 144), as every page does:
++            // the frame pairing spreads any target rate over the game's frames.
++            option = RefreshRate::Display;
++#else
+             manual_value = int(smooth_rate);
++#endif
+         }
+     }
+ };
+diff --git a/recompui/src/config/ui_config_tab_graphics.cpp b/recompui/src/config/ui_config_tab_graphics.cpp
+index 8fdcef1..6001c92 100644
+--- a/recompui/src/config/ui_config_tab_graphics.cpp
++++ b/recompui/src/config/ui_config_tab_graphics.cpp
+@@ -196,7 +196,12 @@ namespace recompui {
+         static EnumOptionVector smooth_rate_options(uint32_t smooth_rate) {
+             return {
+                 {ultramodern::renderer::RefreshRate::Original, "Original", "30 (Original)"},
++#ifdef __EMSCRIPTEN__
++                // On a page Smooth is the display's rate (framerate_rules.cpp).
++                {ultramodern::renderer::RefreshRate::Manual, "Manual", "Display (Smooth)"},
++#else
+                 {ultramodern::renderer::RefreshRate::Manual, "Manual", std::to_string(smooth_rate) + " (Smooth)"},
++#endif
+                 // [wcw hfr] Experiment: twice the smooth rate. Stored under its own key and carried in the
+                 // Display slot (which these games never offer as such), applied as Manual at that rate.
+                 {ultramodern::renderer::RefreshRate::Display, "Smooth2x", std::to_string(smooth_rate * 2) + " (Experimental)"},
 diff --git a/recompui/src/renderer/ui_renderer.cpp b/recompui/src/renderer/ui_renderer.cpp
 index 7a28b2b..1c216f8 100644
 --- a/recompui/src/renderer/ui_renderer.cpp

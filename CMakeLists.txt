@@ -34,6 +34,12 @@ endif()
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
+# The page for a browser (tools/build_web.sh) is web/page.cmake's.
+if (EMSCRIPTEN)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/web/page.cmake)
+    return()
+endif()
+
 set(NMR ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime)
 set(RT64DIR ${CMAKE_SOURCE_DIR}/lib/rt64)
 
