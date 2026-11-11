@@ -25,6 +25,12 @@ bash tools/build_web.sh <your USA Rev 1 dump>
 recompiles the game in the checkout as BUILDING.md's step 4 does, the whole post-regen pipeline included, and builds
 the page in `build-web` (`web/page.cmake`): `NoMercyRecompiled.html`, `.js`, `.wasm` and `.data`.
 
+The page builds its WebGPU pipelines from `web/rt64_shaders.txt` (its header says what was played), the boot's before
+the game starts and a match's when one first draws. `bash web/record_shaders.sh build-web <dump>` records it again from
+`web/shader_plan.json` in headless Chrome (about 11 minutes); build the page again after. `web/play_plan.json` plays
+the page for N64Recomp-browser's `tools/play_page.mjs`, a match of 1P against the CPU, and `web/game_state.js` is what
+both plans read the game by.
+
 The submodules are this port's own forks of rt64, N64ModernRuntime and RecompFrontend (their `wcw` branches, shared with
 its sister recomps), far from the upstream commits N64Recomp-browser's patches are made on, and they change many of
 the same lines. For the files where the two meet (`web/patches/files.txt`, whose header says what each merge kept) the

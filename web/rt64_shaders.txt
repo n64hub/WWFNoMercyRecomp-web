@@ -1,0 +1,45 @@
+# WWF No Mercy's shaders, recorded by tools/record_shaders.mjs from web/shader_plan.json (web/record_shaders.sh) in
+# Chrome: section 0 the launcher, the intro and the title (Start pressed through) and the main menu; then one section
+# for a match, a load in each of the eight arenas (whose matches draw the same shaders but one): Start Game with the
+# save deleted, Start through the intro to the title (game_state.js says the menus' code is loaded), A for the main
+# menu, Exhibition, Single Match, 1P against the CPU, the arena, the rules as they are, the first superstar for both,
+# then Start past the versus screen and the entrance and A to the bell, and 30 s of the match. Not played: the other
+# match types and modes (tag, ladder, cage, Survival, Royal Rumble, Smackdown Mall, the championship modes), the
+# attract demos, entrances watched through, and two humans.
+005041c8 0000acef fcffffff fffdf6fb 0000000b
+005041c8 0000acef fc5196a3 112cfe7f 04cb540b
+00504240 0008acef fc5196a3 112cfe7f 0ccb540c
+00504240 0008acef fc5196a3 112cfe7f 0ccb5408
+00504240 0008acef fcffffff fffdf6fb 0000000b
+00504240 0000acef fc5196a3 112cfe7f 0ccb540b
+00504240 0000acef fc5196a3 112cfe7f 04cb540b
+0f0a7008 0018acef fc127ea3 f00ff23f 0ccb540c
+0f0a7008 0008acef fc127e24 fffff3f9 0ccb540c
+0f0a7008 0018acff fc127ea3 f00ff23f 0ccb540c
+00504240 0008acef fc51fea3 44fe773b 08000008
+0f0a4000 0008acef fc5196a3 112cfe7f 0ccb5408
+00504240 0008ecef fc5196a3 112cfe7f 0ccb540c
+section match
+00504240 0000acef fc51fea3 44fe773b 0800000c
+005041c8 0008acef fcffffff fffdf6fb 0000000b
+00504240 0000acef fcffffff fffdf6fb 0000000b
+005041c8 0008acef fc5196a3 112cfe7f 0ccb5408
+00504240 0008ecef fc40c281 ff87ffff 0ccb5408
+00504240 0008ecef fc40c281 ff87ffff 0ccb540c
+0f0a7008 0018acff fc15fea3 f00ff23f 0aaaaa0c
+0f0a7008 0018acff fc15fea3 f00ff23f 0912880c
+0f0a7008 0018acff fc127ea3 f00ff23f 0ccbfe0c
+0f0a7008 0018ac8f fc127ea3 f00ff23f 0ccb540c
+0f0a4000 0018acff fc45fea3 f00ff83f 08000008
+0f0a7008 0008acff fc127e24 fffff3f9 0ccb540c
+0f0a4000 0008acff fc45fe8b fffff9fc 08000008
+00504240 0008acff fcffb3ff ff65feff 0aaaaa0c
+0f0a7008 0008acff fc15fe2b fffff3f9 0aaaaa0c
+0f0a7008 0008acff fc15fe2b fffff3f9 0912880c
+00504240 0008acff fcffffff fffdf6fb 0800000b
+0f0a7008 0008acff fc127e24 fffff3f9 0ccbfe0c
+0f0a7008 00008cff fcffffff fffcf279 04cb540b
+0f0a7008 00088cff fc127e24 fffff3f9 088a0004
+0f0a4000 00088cff fcffffff fffe793c 08000004
+00504240 0008ecff fc121824 ff33ffff 088a0004
+00504240 0008acff fcff97ff ff2cfe7f 088a000c
