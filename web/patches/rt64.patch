@@ -4067,6 +4067,56 @@ index db2e364..bcceb2d 100644
      };
  };
 \ No newline at end of file
+diff --git a/src/render/rt64_crt_filter.cpp b/src/render/rt64_crt_filter.cpp
+index eddf1b5..4facd2b 100644
+--- a/src/render/rt64_crt_filter.cpp
++++ b/src/render/rt64_crt_filter.cpp
+@@ -351,6 +351,8 @@ namespace RT64 {
+                 error = libra.d3d12_filter_chain_create_deferred(&libraPreset, d3d12Device->d3d, d3d12CommandList->d3d, &options, &chain.d3d12);
+             }
+ #       endif
++            // No Vulkan on a page (plume draws through WebGPU), and no chain: its backend is None there.
++#       if !defined(__EMSCRIPTEN__)
+             if (backend == CrtBackend::Vulkan) {
+                 VulkanDevice *vulkanDevice = static_cast<VulkanDevice *>(device);
+                 VulkanCommandList *vulkanCommandList = static_cast<VulkanCommandList *>(setupWorker->commandList.get());
+@@ -365,6 +367,7 @@ namespace RT64 {
+                 options.version = LIBRASHADER_CURRENT_VERSION;
+                 error = libra.vk_filter_chain_create_deferred(&libraPreset, vulkan, vulkanCommandList->vk, &options, &chain.vk);
+             }
++#       endif
+ 
+             setupWorker->commandList->end();
+             setupWorker->execute();
+@@ -419,6 +422,8 @@ namespace RT64 {
+                 d3d12CommandList->activeComputePipelineLayout = nullptr;
+             }
+ #       endif
++            // A page has no Vulkan: plume draws through WebGPU there, so no chain is ever made on one.
++#       if !defined(__EMSCRIPTEN__)
+             if (chain.vk != nullptr) {
+                 VulkanCommandList *vulkanCommandList = static_cast<VulkanCommandList *>(commandList);
+ 
+@@ -441,6 +446,7 @@ namespace RT64 {
+                 vulkanCommandList->activeGraphicsPipelineLayout = nullptr;
+                 vulkanCommandList->activeComputePipelineLayout = nullptr;
+             }
++#       endif
+ 
+             if (error != nullptr) {
+                 // The chain is still referenced by this frame's commands; it's freed on the next rebuild.
+@@ -703,9 +709,11 @@ namespace RT64 {
+             impl->backend = CrtBackend::D3D12;
+             break;
+ #   endif
++#   if !defined(__EMSCRIPTEN__)
+         case RenderShaderFormat::SPIRV:
+             impl->backend = CrtBackend::Vulkan;
+             break;
++#   endif
+         default:
+             impl->backend = CrtBackend::None;
+             break;
 diff --git a/src/render/rt64_render_target.h b/src/render/rt64_render_target.h
 index 170ad7b..88f9940 100644
 --- a/src/render/rt64_render_target.h

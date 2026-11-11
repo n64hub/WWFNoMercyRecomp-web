@@ -19,7 +19,8 @@
 # the port's smooth-point UVs. The web's markUsed in rt64_rdp_tmem.cpp sits on the hash-set check, as the web has it,
 # and marks the port's de-lined copy too. Ray tracing, the CRT filter and HDR are D3D12's or librashader's and do
 # nothing on a page. As the port's own web change, the texture cache reads its replacement database as chars
-# (rt64_texture_cache.cpp): the port's json, 3.9, reads bytes through a std::char_traits Emscripten's libc++ lacks.
+# (rt64_texture_cache.cpp): the port's json, 3.9, reads bytes through a std::char_traits Emscripten's libc++ lacks, and
+# the CRT filter's Vulkan chain is left out (rt64_crt_filter.cpp), which would link Vulkan's loader into the page.
 # plume: the web's WebGPU backend and device-thread wrapper gain the port's getColorSpace() (a canvas is sRGB) and pass
 # on a queue's setName(). The examples are the port's: a page doesn't build them.
 # N64ModernRuntime: the port's message pump, which drops a message stuck 1 s, takes the place of the web's held list
@@ -46,6 +47,7 @@ rt64 src/hle/rt64_state.cpp
 rt64 src/hle/rt64_vi.cpp
 rt64 src/hle/rt64_workload_queue.cpp
 rt64 src/hle/rt64_workload_queue.h
+rt64 src/render/rt64_crt_filter.cpp
 rt64 src/render/rt64_render_target.h
 rt64 src/render/rt64_shader_library.cpp
 rt64 src/render/rt64_texture_cache.cpp
