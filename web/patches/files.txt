@@ -1,0 +1,75 @@
+# The files where this port's own forks of rt64, plume, N64ModernRuntime, N64Recomp and RecompFrontend (their wcw
+# branches) change the same lines as N64Recomp-browser's web support: <project> <path in the project> [own].
+# tools/build_web.sh leaves each out of N64Recomp-browser's patch for its project and applies web/patches/<project>.patch
+# in its place, the web's change to these files merged by hand on top of the port's. The web's later changes to them
+# are merged in by apply.cmake --since from the commit below; one that meets the port's own lines stops the build, for
+# another merge by hand and this commit moved. A file followed by own is left to the port alone: the web's change to it
+# is left out, then and later. A file here can also carry a web change of the port's own: code of the forks that a
+# page can't compile.
+#
+# merged from N64Recomp-browser 73144095de33975c9973083c536c215cb252a5e0
+#
+# rt64: the port's frame pairing for interpolation stays, so RT64_GAME_FRAME_WORKLOADS is off (rt64_workload_queue.h
+# refuses it): the pairing needs each workload to stay a game frame of its own. Its three target sets stay too, with
+# the frames per game frame capped on a page at the targets there are. The VI rate takes the port's 2-of-3 majority
+# first and the web's rule for uneven frames where there is none. In the present queue the port's target choice, pacer,
+# CRT filter and GPU timer stay; on a page the web's present timeline takes the place of its sleep, and a newer queued
+# frame is judged once its workload is done. The web's narrower TMEM sync is left out (the port's TMEM tracking gives
+# it no start). RasterPS takes its derivatives once at the top and feeds them to the port's LOD; TextureSampler keeps
+# the port's smooth-point UVs. The web's markUsed in rt64_rdp_tmem.cpp sits on the hash-set check, as the web has it,
+# and marks the port's de-lined copy too. Ray tracing, the CRT filter and HDR are D3D12's or librashader's and do
+# nothing on a page.
+# plume: the web's WebGPU backend and device-thread wrapper gain the port's getColorSpace() (a canvas is sRGB) and pass
+# on a queue's setName(). The examples are the port's: a page doesn't build them.
+# N64ModernRuntime: the port's message pump, which drops a message stuck 1 s, takes the place of the web's held list
+# (mesgqueue.cpp, own; ULTRAMODERN_HOLD_BLOCKED_MESSAGES does nothing here). events.cpp keeps the port's batched action
+# drain and later SP done with the web's turn counts and screen update after the VI. mods.cpp has the web's redirects
+# beside the port's live recompiler, and refuses de-relinked ROM hacks on wasm. Off with Emscripten: Datadog's send, the
+# low user segment and KSEG1 ROM mapping (they need a 4 GB reservation), and, as the port's own web changes, the entry
+# prologues' 64-bit indices (entry_prologue_rules) and clock_cast (save_backups.cpp), which wasm32 and Emscripten's
+# libc++ lack.
+# N64Recomp: the port's tail calls for the live recompiler and the web's RECOMP_TAIL_CALL in the C it writes are both
+# kept; the port's recorded jump table ranges come first, the web's section lookup outside them.
+# RecompFrontend: the web's profiles are made first, then the port's plug-and-play assignment, so the first pad
+# connected on a page is player 1. The port's HDR menu composite is off on a page.
+rt64 CMakeLists.txt
+rt64 src/common/rt64_tmem_hasher.h
+rt64 src/gbi/rt64_gbi.cpp
+rt64 src/hle/rt64_framebuffer_manager.cpp
+rt64 src/hle/rt64_framebuffer_manager.h
+rt64 src/hle/rt64_game_frame.cpp
+rt64 src/hle/rt64_present_queue.cpp
+rt64 src/hle/rt64_rdp_tmem.cpp
+rt64 src/hle/rt64_state.cpp
+rt64 src/hle/rt64_vi.cpp
+rt64 src/hle/rt64_workload_queue.cpp
+rt64 src/hle/rt64_workload_queue.h
+rt64 src/render/rt64_render_target.h
+rt64 src/render/rt64_shader_library.cpp
+rt64 src/shaders/RasterPS.hlsl
+rt64 src/shaders/TextureSampler.hlsli
+plume plume_render_interface.h
+plume plume_webgpu.h
+plume plume_webgpu.cpp
+plume plume_device_thread.cpp
+plume examples/CMakeLists.txt own
+plume examples/cube/main.cpp own
+plume examples/triangle/main.cpp own
+N64ModernRuntime librecomp/include/librecomp/entry_prologue_rules.hpp
+N64ModernRuntime librecomp/src/dd_breadcrumb_send.cpp
+N64ModernRuntime librecomp/src/entry_prologue_rules.cpp
+N64ModernRuntime librecomp/src/mods.cpp
+N64ModernRuntime librecomp/src/overlays.cpp
+N64ModernRuntime librecomp/src/recomp.cpp
+N64ModernRuntime librecomp/src/save_backups.cpp
+N64ModernRuntime ultramodern/include/ultramodern/renderer_context.hpp
+N64ModernRuntime ultramodern/src/events.cpp
+N64ModernRuntime ultramodern/src/mesgqueue.cpp own
+N64ModernRuntime ultramodern/src/renderer_context.cpp
+N64ModernRuntime ultramodern/src/threadqueue.cpp
+N64Recomp include/recomp.h
+N64Recomp src/analysis.cpp
+N64Recomp src/recompilation.cpp
+RecompFrontend recompinput/src/input_events.cpp
+RecompFrontend recompui/src/renderer/ui_renderer.cpp
+RecompFrontend recompui/CMakeLists.txt

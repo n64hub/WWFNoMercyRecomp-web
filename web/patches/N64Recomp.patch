@@ -1,0 +1,274 @@
+diff --git a/include/recomp.h b/include/recomp.h
+index 959b0e4..780016e 100644
+--- a/include/recomp.h
++++ b/include/recomp.h
+@@ -261,6 +261,43 @@ static inline void do_sdr(uint8_t* rdram, gpr offset, gpr reg, gpr val) {
+     MEM_W(0, dword_address + 0) = hi;
+ }
+ 
++#if defined(__wasm__)
++// WebAssembly only rounds to nearest, and its fesetround accepts every mode and changes nothing. So the mode the game
++// sets is kept here, per thread as the host's would be, and the conversions that take the current mode (cvt.w, cvt.l)
++// apply it themselves. Arithmetic still rounds to nearest whatever the mode.
++#ifdef __cplusplus
++#define RECOMP_THREAD_LOCAL thread_local
++#else
++#define RECOMP_THREAD_LOCAL _Thread_local
++#endif
++__attribute__((weak)) RECOMP_THREAD_LOCAL uint32_t recomp_rounding_mode = 0;
++
++static inline uint32_t get_cop1_cs() {
++    return recomp_rounding_mode;
++}
++
++static inline void set_cop1_cs(uint32_t val) {
++    recomp_rounding_mode = val & 0x3;
++}
++
++static inline float recomp_round_s(float val) {
++    switch (recomp_rounding_mode) {
++        case 1: return truncf(val);
++        case 2: return ceilf(val);
++        case 3: return floorf(val);
++        default: return rintf(val);
++    }
++}
++
++static inline double recomp_round_d(double val) {
++    switch (recomp_rounding_mode) {
++        case 1: return trunc(val);
++        case 2: return ceil(val);
++        case 3: return floor(val);
++        default: return rint(val);
++    }
++}
++#else
+ static inline uint32_t get_cop1_cs() {
+     uint32_t rounding_mode = 0;
+     switch (fegetround()) {
+@@ -304,6 +341,7 @@ static inline void set_cop1_cs(uint32_t val) {
+     }
+     fesetround(round);
+ }
++#endif
+ 
+ #define S32(val) \
+     ((int32_t)(val))
+@@ -363,7 +401,11 @@ static inline void set_cop1_cs(uint32_t val) {
+ 
+ static inline int32_t do_cvt_w_s(float val) {
+     // Rounding mode aware float to 32-bit int conversion.
++#if defined(__wasm__)
++    return (int32_t)recomp_round_s(val);
++#else
+     return (int32_t)lrintf(val);
++#endif
+ }
+ 
+ #define CVT_W_S(val) \
+@@ -371,7 +413,11 @@ static inline int32_t do_cvt_w_s(float val) {
+ 
+ static inline int64_t do_cvt_l_s(float val) {
+     // Rounding mode aware float to 64-bit int conversion.
++#if defined(__wasm__)
++    return (int64_t)recomp_round_s(val);
++#else
+     return (int64_t)llrintf(val);
++#endif
+ }
+ 
+ #define CVT_L_S(val) \
+@@ -379,7 +425,11 @@ static inline int64_t do_cvt_l_s(float val) {
+ 
+ static inline int32_t do_cvt_w_d(double val) {
+     // Rounding mode aware double to 32-bit int conversion.
++#if defined(__wasm__)
++    return (int32_t)recomp_round_d(val);
++#else
+     return (int32_t)lrint(val);
++#endif
+ }
+ 
+ #define CVT_W_D(val) \
+@@ -387,7 +437,11 @@ static inline int32_t do_cvt_w_d(double val) {
+ 
+ static inline int64_t do_cvt_l_d(double val) {
+     // Rounding mode aware double to 64-bit int conversion.
++#if defined(__wasm__)
++    return (int64_t)recomp_round_d(val);
++#else
+     return (int64_t)llrint(val);
++#endif
+ }
+ 
+ #define CVT_L_D(val) \
+@@ -476,6 +530,58 @@ void pause_self(uint8_t *rdram);
+ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx);
+ void __osSiDeviceBusy_recomp(uint8_t* rdram, recomp_context* ctx);
+ 
++#if defined(__wasm__)
++// A mod replaces or hooks a recompiled function by rewriting its machine code (N64ModernRuntime's patch_func), which
++// WebAssembly can't do, so there every recompiled function asks at its entry instead. A function pointer is an index
++// into the function table, and recomp_redirected has a byte for each index below recomp_redirected_count, set for a
++// function a mod replaces or hooks; recomp_redirect then runs the replacement or the hooks around the function and
++// returns nonzero, or returns 0 when the function is to run itself (as it is called from those hooks). Without mods
++// the count is 0, and the check is one comparison.
++extern const uint8_t* recomp_redirected;
++extern uintptr_t recomp_redirected_count;
++int recomp_redirect(uint8_t* rdram, recomp_context* ctx, uintptr_t func);
++// A function's table index, hidden from the optimizer: clang (24) folds a function's address used as an array index
++// into the load's offset, and the linker fills that in with the function's index in the module, not its table index.
++static inline uintptr_t recomp_table_index(uintptr_t func) {
++    __asm__("" : "+r"(func));
++    return func;
++}
++#define RECOMP_FUNC_ENTRY(func) \
++    { \
++        uintptr_t recomp_entry_index = recomp_table_index((uintptr_t)&func); \
++        if (recomp_entry_index < recomp_redirected_count && recomp_redirected[recomp_entry_index] && \
++            recomp_redirect(rdram, ctx, recomp_entry_index)) return; \
++    }
++#else
++#define RECOMP_FUNC_ENTRY(func)
++#endif
++
++// What comes before a tail call, a call to another function as this one's last act (a MIPS j or jr out of it), which
++// the recompiled C writes as the call and a return. Natively the optimizer turns that into a jump. In WebAssembly it
++// stays a call, so a game whose code chains tail calls without end overflows the browser's stack (Conker's Bad Fur
++// Day after minutes of play), unless it is a return_call: with the tail call feature (-mtail-call, which every
++// browser with WebGPU has) this forces one. Without it the call stays a plain one. The empty statement keeps the
++// attribute off a label just before it, which would take it as its own.
++#if defined(__wasm_tail_call__)
++#define RECOMP_TAIL_CALL ; __attribute__((musttail)) return
++#else
++#define RECOMP_TAIL_CALL
++#endif
++
++// A mod's code recompiled ahead of time into C (OfflineModRecomp --static) and linked into the executable, for a
++// platform without the live recompiler (WebAssembly). The runtime uses it, through the pointers here, for a mod whose
++// mod_binary.bin and mod_syms.bin hash to `hash` (N64Recomp::mod_code_hash), in place of recompiling the mod.
++typedef struct {
++    uint64_t hash;
++    size_t num_functions;
++    recomp_func_t* const* functions;      // in the order of the mod's symbol file
++    recomp_func_t** imported_funcs;
++    recomp_func_t** reference_symbol_funcs;
++    uint32_t* base_event_index;
++    int32_t** reference_section_addresses;
++    int32_t* section_addresses;           // the mod's own
++} recomp_precompiled_mod;
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/analysis.cpp b/src/analysis.cpp
+index d5d7dc5..14a8dbc 100644
+--- a/src/analysis.cpp
++++ b/src/analysis.cpp
+@@ -324,18 +324,44 @@ bool N64Recomp::analyze_function(const N64Recomp::Context& context, const N64Rec
+             end_address = stats.jump_tables[i + 1].vram;
+         }
+ 
+-        // TODO this assumes that the jump table is in the same section as the function itself
+-        // [wcw fullconv] ...unless Context::jump_table_data_ranges says where it is.
+-        auto jtbl_rom_of = [&context, &func](uint32_t addr) -> uint32_t {
++        // The jump table is read at the function's ROM offset, as if it were in the function's own section, unless
++        // another section loaded beside it holds its address: GoldenEye keeps every jump table in a .rodata section of
++        // its own. A section overlapping the function's in memory is an overlay that is never loaded with it (Rush 2049's
++        // two overlays share their addresses, and a table just past the end of one lies inside the other).
++        // [wcw fullconv] Context::jump_table_data_ranges, where one holds the table, say where it is first.
++        auto in_jtbl_data_range = [&context](uint32_t addr) {
++            for (const auto& range : context.jump_table_data_ranges) {
++                if (addr >= range[0] && addr < range[1]) {
++                    return true;
++                }
++            }
++            return false;
++        };
++        cur_jtbl.section_index = func.section_index;
++        uint32_t jtbl_rom_offset = func.rom - func.vram;
++        const N64Recomp::Section& func_section = context.sections[func.section_index];
++        if (!in_jtbl_data_range(cur_jtbl.vram) &&
++            (cur_jtbl.vram < func_section.ram_addr || cur_jtbl.vram >= func_section.ram_addr + func_section.size)) {
++            for (size_t section_index = 0; section_index < context.sections.size(); section_index++) {
++                const N64Recomp::Section& section = context.sections[section_index];
++                bool overlaps_func_section = section.ram_addr < func_section.ram_addr + func_section.size &&
++                    func_section.ram_addr < section.ram_addr + section.size;
++                if (!overlaps_func_section && cur_jtbl.vram >= section.ram_addr && cur_jtbl.vram < section.ram_addr + section.size) {
++                    cur_jtbl.section_index = static_cast<uint16_t>(section_index);
++                    jtbl_rom_offset = section.rom_addr - section.ram_addr;
++                    break;
++                }
++            }
++        }
++        auto jtbl_rom_of = [&context, jtbl_rom_offset](uint32_t addr) -> uint32_t {
+             for (const auto& range : context.jump_table_data_ranges) {
+                 if (addr >= range[0] && addr < range[1]) {
+                     return range[2] + (addr - range[0]);
+                 }
+             }
+-            return addr + func.rom - func.vram;
++            return addr + jtbl_rom_offset;
+         };
+         cur_jtbl.rom = jtbl_rom_of(cur_jtbl.vram);
+-        cur_jtbl.section_index = func.section_index;
+ 
+         // [wcw fullconv] With unknown jumps as lookup tail calls, a table whose bounds check is known holds at least
+         // that many cases, wherever they point: a hack can redirect a case into another function's body
+@@ -350,7 +376,6 @@ bool N64Recomp::analyze_function(const N64Recomp::Context& context, const N64Rec
+ 
+         while (vram < end_address) {
+             // Retrieve the current entry of the jump table
+-            // TODO same as above
+             uint32_t rom_addr = jtbl_rom_of(vram);
+             // [wcw fullconv] Stop at the end of the ROM instead of reading past it.
+             if ((size_t)rom_addr + sizeof(uint32_t) > context.rom.size()) {
+diff --git a/src/recompilation.cpp b/src/recompilation.cpp
+index 04041c0..55c8fc6 100644
+--- a/src/recompilation.cpp
++++ b/src/recompilation.cpp
+@@ -302,7 +302,7 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+         return true;
+     };
+ 
+-    auto print_func_call_by_register = [&](int reg) {
++    auto print_func_call_by_register = [&](int reg, bool tail_call = false) {
+         if (!process_delay_slot(false)) {
+             return false;
+         }
+@@ -310,6 +310,9 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+         if (context.tail_call_unknown_jumps_by_lookup) {
+             generator.emit_save_sp();
+         }
++        if (tail_call) {
++            generator.emit_tail_call_start(context);
++        }
+         generator.emit_function_call_by_register(reg);
+         if (context.tail_call_unknown_jumps_by_lookup) {
+             generator.emit_return_if_sp_changed(context, func_index);
+@@ -403,6 +406,9 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+                 generator.emit_save_sp();
+             }
+             generator.set_tail_call(tail_call);
++            if (tail_call) {
++                generator.emit_tail_call_start(context);
++            }
+             if (reloc_reference_symbol != (size_t)-1) {
+                 generator.emit_function_call_reference_symbol(context, reloc_section, reloc_reference_symbol, reloc_target_section_offset);
+             }
+@@ -660,13 +666,14 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+                 print_indent();
+                 generator.emit_return_if_ra_token(rs, context, func_index);
+                 generator.set_tail_call(true);
++                generator.emit_tail_call_start(context);
+                 generator.emit_function_call_by_register(rs);
+                 generator.set_tail_call(false);
+                 print_indent();
+                 generator.emit_return(context, func_index);
+                 break;
+             }
+-            print_func_call_by_register(rs);
++            print_func_call_by_register(rs, true);
+             print_indent();
+             generator.emit_return(context, func_index);
+             break;

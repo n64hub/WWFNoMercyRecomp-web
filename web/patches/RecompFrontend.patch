@@ -1,0 +1,571 @@
+diff --git a/recompinput/src/input_events.cpp b/recompinput/src/input_events.cpp
+index f36ce15..3838140 100644
+--- a/recompinput/src/input_events.cpp
++++ b/recompinput/src/input_events.cpp
+@@ -6,6 +6,12 @@
+ #include "recompui/config.h"
+ #include "ultramodern/ultramodern.hpp"
+ 
++#ifdef __EMSCRIPTEN__
++#include <atomic>
++#include <vector>
++#include <emscripten/html5.h>
++#endif
++
+ static struct {
+     std::list<std::filesystem::path> files_dropped;
+ } DropState;
+@@ -39,7 +45,79 @@ void purge_deferred_controller_profiles() {
+     deferred_controller_profiles.clear();
+ }
+ 
++#ifdef __EMSCRIPTEN__
++// On a page the cursor lock below is the browser's pointer lock, which SDL asks for when relative mode goes on and the
++// browser grants at a click or key. The browser also ends it by itself: at Esc, which then never reaches the page, and
++// when the page loses focus. Emscripten's SDL keeps relative mode on through that, and sends the cursor's position on
++// the canvas as motion from the last locked one, so a game looking with the mouse turned at once by however far that
++// was, and kept turning as the cursor moved; and Esc opened the menu only when pressed a second time. Here motion
++// counts only while the browser holds the lock, and a lock the browser ended while it was wanted opens the menu as Esc
++// does natively. Closing the menu turns relative mode on again, and SDL asks for the lock at once if the player's
++// click or key there still allows it, else at their next one (browsers don't count Esc as one).
++static std::atomic<bool> web_pointer_locked = false;
++static SDL_EventFilter web_next_filter = nullptr;
++static void* web_next_filter_userdata = nullptr;
++
++// Called on the page's thread at once, before the motion SDL's handlers then send on the thread they run on.
++static EM_BOOL web_pointerlock_change(int, const EmscriptenPointerlockChangeEvent* event, void*) {
++    web_pointer_locked = event->isActive;
++    return EM_FALSE;
++}
++
++// Run as SDL pushes an event, before any event watch sees it (a game's own mouse look included).
++static int web_mouse_filter(void*, SDL_Event* event) {
++    if (event->type == SDL_MOUSEMOTION && SDL_GetRelativeMouseMode() && !web_pointer_locked) {
++        return 0;
++    }
++    return web_next_filter != nullptr ? web_next_filter(web_next_filter_userdata, event) : 1;
++}
++
++static void web_watch_pointer_lock() {
++    static bool watching = false;
++    static bool had_lock = false;
++    if (!watching) {
++        watching = true;
++        emscripten_set_pointerlockchange_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, nullptr, EM_FALSE,
++            web_pointerlock_change, EM_CALLBACK_THREAD_CONTEXT_MAIN_RUNTIME_THREAD);
++        // RT64 chains the filter it finds when it installs its own, and this one chains whatever came before it.
++        if (!SDL_GetEventFilter(&web_next_filter, &web_next_filter_userdata)) {
++            web_next_filter = nullptr;
++            web_next_filter_userdata = nullptr;
++        }
++        // SDL_SetEventFilter drops every event still queued, and this runs before the first is read: among them the
++        // SDL_CONTROLLERDEVICEADDED SDL_Init queues for each gamepad already there (one pressed as the page loads), which
++        // was then never opened. So they are taken out first and queued again after.
++        int count = SDL_PeepEvents(nullptr, 0, SDL_PEEKEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
++        std::vector<SDL_Event> queued(count > 0 ? count : 0);
++        count = queued.empty() ? 0 : SDL_PeepEvents(queued.data(), int(queued.size()), SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
++        SDL_SetEventFilter(web_mouse_filter, nullptr);
++        if (count > 0) {
++            SDL_PeepEvents(queued.data(), count, SDL_ADDEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
++        }
++    }
++
++    // Relative mode is still on only if the lock ended without this side turning it off (a menu opened another way).
++    bool has_lock = web_pointer_locked;
++    if (had_lock && !has_lock && SDL_GetRelativeMouseMode() && ultramodern::is_game_started()) {
++        SDL_Event escape{};
++        escape.type = SDL_KEYDOWN;
++        escape.key.state = SDL_PRESSED;
++        escape.key.keysym.scancode = SDL_SCANCODE_ESCAPE;
++        escape.key.keysym.sym = SDLK_ESCAPE;
++        recompui::queue_event(escape);
++    }
++    had_lock = has_lock;
++}
++#endif
++
++// Set by the window's close, which SDL follows with an SDL_QUIT when it is the last window.
++static bool window_closed = false;
++
+ bool sdl_event_filter(void* userdata, SDL_Event* event) {
++    // Before the switch, so each upstream's own handling of window events below stays as it is.
++    if (event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_CLOSE) {
++        window_closed = true;
++    }
+     switch (event->type) {
+     case SDL_EventType::SDL_KEYDOWN:
+     {
+@@ -103,6 +181,13 @@ bool sdl_event_filter(void* userdata, SDL_Event* event) {
+                 profiles::add_controller(guid, profile_index);
+             }
+         }
++#ifdef RECOMPINPUT_SINGLE_PLAYER_UNTIL_ASSIGNED
++        // A game that allows more players makes a controller's profile at once, as the controls page's player cards list
++        // them, though it plays as single-player mode until players are assigned (players.cpp).
++        if (players::get_max_number_of_players() > 1) {
++            purge_deferred_controller_profiles();
++        }
++#endif
+ 
+         // [wcw fix] Plug-and-play multiplayer: claim a player slot for the new pad (no-op in
+         // single-player mode or during manual assignment). Runs after the profile registration
+@@ -121,7 +206,12 @@ bool sdl_event_filter(void* userdata, SDL_Event* event) {
+     }
+     break;
+     case SDL_EventType::SDL_QUIT: {
+-        if (!ultramodern::is_game_started()) {
++        // A window closed by its player asks first. SDL sends SDL_QUIT with no window close before it for SIGTERM and
++        // SIGINT too (a session logging out, a service manager, a terminal's Ctrl+C, timeout), and there nobody can
++        // answer the prompt, so the program would never end: that quits at once.
++        bool asked_by_player = window_closed;
++        window_closed = false;
++        if (!ultramodern::is_game_started() || !asked_by_player) {
+             ultramodern::quit();
+             return true;
+         }
+@@ -266,6 +356,9 @@ void handle_events() {
+     SDL_Event cur_event;
+     static bool started = false;
+     static bool exited = false;
++#ifdef __EMSCRIPTEN__
++    web_watch_pointer_lock();
++#endif
+     while (SDL_PollEvent(&cur_event) && !exited) {
+         exited = sdl_event_filter(nullptr, &cur_event);
+ 
+diff --git a/recompui/CMakeLists.txt b/recompui/CMakeLists.txt
+index b23f9fd..6f32ba5 100644
+--- a/recompui/CMakeLists.txt
++++ b/recompui/CMakeLists.txt
+@@ -52,6 +52,12 @@ set(RT64_STATIC TRUE)
+ set(RT64_SDL_WINDOW_VULKAN TRUE)
+ add_compile_definitions(HLSL_CPU)
+ 
++if (EMSCRIPTEN)
++    # RmlUi's FreeType is Emscripten's port, in the build of it whose setjmp matches -fwasm-exceptions (legacy wasm
++    # exceptions, Emscripten's default); the plain build's setjmp needs JavaScript exceptions. Build it, and its headers,
++    # once with "embuilder build freetype-legacysjlj".
++    set(FREETYPE_LIBRARY "${EMSCRIPTEN_SYSROOT}/lib/wasm32-emscripten/libfreetype-legacysjlj.a" CACHE FILEPATH "")
++endif()
+ add_subdirectory(lib/RmlUi)
+ target_compile_definitions(rmlui_core PRIVATE LUNASVG_BUILD_STATIC)
+ 
+@@ -96,9 +102,21 @@ target_include_directories(recompui PUBLIC
+     ${CMAKE_BINARY_DIR}/shaders
+ )
+ 
++# With Emscripten, RT64 builds its shaders as WGSL (RT64_WGSL), and so do these: what its build_*_shader functions need
++# to do that, which RT64 sets for its own directory only.
++if (EMSCRIPTEN)
++    set(RT64_WGSL ON)
++    set(RT64_PLUME_WGSL "${RECOMP_FRONTEND_RT64_PATH}/src/contrib/plume/examples/cmake/modules/PlumeWGSL.cmake")
++    target_compile_definitions(recompui PRIVATE RT64_WGSL=1)
++endif()
++
+ build_vertex_shader(recompui "shaders/InterfaceVS.hlsl" "shaders/InterfaceVS.hlsl")
+ build_pixel_shader(recompui "shaders/InterfacePS.hlsl" "shaders/InterfacePS.hlsl")
+-build_pixel_shader(recompui "shaders/InterfaceHdrPS.hlsl" "shaders/InterfaceHdrPS.hlsl")
++# The HDR composite draws into an scRGB swap chain, which a WebGPU canvas never is: ui_renderer.cpp makes it only
++# without RT64_WGSL.
++if (NOT EMSCRIPTEN)
++    build_pixel_shader(recompui "shaders/InterfaceHdrPS.hlsl" "shaders/InterfaceHdrPS.hlsl")
++endif()
+ 
+ target_include_directories(recompui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include/recompui")
+ 
+@@ -106,6 +124,11 @@ if (WIN32)
+     target_include_directories(recompui PRIVATE ${sdl2_SOURCE_DIR}/include)
+ elseif (APPLE OR CMAKE_SYSTEM_NAME MATCHES "Linux")
+     target_include_directories(recompui PRIVATE ${SDL2_INCLUDE_DIRS})
++elseif (EMSCRIPTEN)
++    # Emscripten's ports of SDL2 and FreeType (for RmlUi).
++    target_compile_options(recompui PUBLIC -sUSE_SDL=2 -sUSE_FREETYPE=1)
++    target_link_options(recompui PUBLIC -sUSE_SDL=2 -sUSE_FREETYPE=1)
++    target_include_directories(recompui PRIVATE ${EMSCRIPTEN_SYSROOT}/include/SDL2)
+ endif()
+ 
+ target_compile_options(recompui PRIVATE
+diff --git a/recompui/src/renderer/ui_renderer.cpp b/recompui/src/renderer/ui_renderer.cpp
+index 7a28b2b..1c216f8 100644
+--- a/recompui/src/renderer/ui_renderer.cpp
++++ b/recompui/src/renderer/ui_renderer.cpp
+@@ -13,16 +13,24 @@
+ #include "render/rt64_hdr_output.h"
+ 
+ #include "RmlUi/Core/RenderInterfaceCompatibility.h"
++#include "RmlUi/Core/Core.h"
+ 
+ #include "ui_renderer.h"
+ 
++#if defined(RT64_WGSL)
++// WebGPU (RT64's WGSL build, always on with Emscripten): the shaders are WGSL only.
++#   include "InterfaceVS.hlsl.wgsl.h"
++#   include "InterfacePS.hlsl.wgsl.h"
++#else
+ // TODO: Forced game includes
+ #include "InterfaceVS.hlsl.spirv.h"
+ // TODO: Forced game includes
+ #include "InterfacePS.hlsl.spirv.h"
+ #include "InterfaceHdrPS.hlsl.spirv.h"
++#endif
+ 
+-#ifdef _WIN32
++#if defined(RT64_WGSL)
++#elif defined(_WIN32)
+ // TODO: Forced game includes
+ #   include "InterfaceVS.hlsl.dxil.h"
+ // TODO: Forced game includes
+@@ -36,7 +44,12 @@
+ #   include "InterfaceHdrPS.hlsl.metal.h"
+ #endif
+ 
+-#ifdef _WIN32
++#if defined(RT64_WGSL)
++#    define GET_SHADER_BLOB(name, format) \
++        ((format) == plume::RenderShaderFormat::WGSL ? name##BlobWGSL : nullptr)
++#    define GET_SHADER_SIZE(name, format) \
++        ((format) == plume::RenderShaderFormat::WGSL ? std::size(name##BlobWGSL) : 0)
++#elif defined(_WIN32)
+ #    define GET_SHADER_BLOB(name, format) \
+         ((format) == plume::RenderShaderFormat::SPIRV ? name##BlobSPIRV : \
+         (format) == plume::RenderShaderFormat::DXIL ? name##BlobDXIL : nullptr)
+@@ -118,13 +131,22 @@ class RmlRenderInterface_RT64_impl : public Rml::RenderInterfaceCompatibility {
+     static constexpr uint32_t initial_upload_buffer_size = 1024 * 1024;
+     static constexpr uint32_t initial_vertex_buffer_size = 512 * sizeof(Rml::Vertex);
+     static constexpr uint32_t initial_index_buffer_size = 1024 * sizeof(int);
++#ifdef __EMSCRIPTEN__
++    // An image is uploaded a band of rows at a time, at most this many bytes of them (a row if one is more). The copy
++    // buffer is sized for the largest upload yet and kept, and on WebGPU plume keeps an upload buffer's memory in the
++    // heap: whole, a launcher's SVG background drawn for a 3840x2000 canvas (10723x6032, 247 MB) kept a 371 MB copy
++    // buffer there, and a page's heap is fixed.
++    static constexpr uint32_t copy_band_size = 16 * 1024 * 1024;
++#endif
+     static constexpr plume::RenderFormat RmlTextureFormat = plume::RenderFormat::R8G8B8A8_UNORM;
+     static constexpr plume::RenderFormat RmlTextureFormatBgra = plume::RenderFormat::B8G8R8A8_UNORM;
+-    static constexpr plume::RenderFormat SwapChainFormat = plume::RenderFormat::B8G8R8A8_UNORM;
+     static constexpr uint32_t RmlTextureFormatBytesPerPixel = RenderFormatSize(RmlTextureFormat);
+     static_assert(RenderFormatSize(RmlTextureFormatBgra) == RmlTextureFormatBytesPerPixel);
+     plume::RenderInterface* interface_;
+     plume::RenderDevice* device_;
++    // The swap chain's format, which the menus draw into: the device's preferred one, as RT64 creates it with (bgra8unorm
++    // natively; on a page the one the browser presents without a copy).
++    plume::RenderFormat swap_chain_format_;
+     int scissor_x_ = 0;
+     int scissor_y_ = 0;
+     int scissor_width_ = 0;
+@@ -174,18 +196,69 @@ class RmlRenderInterface_RT64_impl : public Rml::RenderInterfaceCompatibility {
+     std::unordered_map<std::string, ImageFromBytes> image_from_bytes_map;
+ public:
+     RmlRenderInterface_RT64_impl(plume::RenderInterface* interface, plume::RenderDevice* device) {
++        vertex_buffer_.flags_ = plume::RenderBufferFlag::VERTEX;
++        index_buffer_.flags_ = plume::RenderBufferFlag::INDEX;
++        create_device_objects(interface, device);
++    }
++
++#ifdef __EMSCRIPTEN__
++    // Where RT64 replaces a lost WebGPU device (its replace device hook): destroys everything made on the old device,
++    // RmlUi's textures included, which it loads again as it next draws with them, and keeps the rest (the images
++    // queued from bytes, the documents).
++    void release_device_objects() {
++        Rml::ReleaseTextures(GetAdaptedInterface());
++        textures_.clear();
++        for (DynamicBuffer *dynamic_buffer : { &upload_buffer_, &vertex_buffer_, &index_buffer_ }) {
++            dynamic_buffer->buffer_.reset();
++            dynamic_buffer->size_ = 0;
++            dynamic_buffer->bytes_used_ = 0;
++            dynamic_buffer->mapped_data_ = nullptr;
++        }
++
++        stale_buffers_.clear();
++        copy_command_fence_.reset();
++        copy_command_list_.reset();
++        copy_command_queue_.reset();
++        copy_buffer_.reset();
++        copy_buffer_size_ = 0;
++        screen_vertex_buffer_.reset();
++        screen_descriptor_set_.reset();
++        screen_framebuffer_.reset();
++        screen_texture_.reset();
++        screen_texture_ms_.reset();
++        hdr_pipeline_.reset();
++        pipeline_ms_.reset();
++        pipeline_.reset();
++        hdr_layout_.reset();
++        layout_.reset();
++        texture_set_builder_.reset();
++        sampler_set_.reset();
++        hdr_pixel_shader_.reset();
++        pixel_shader_.reset();
++        vertex_shader_.reset();
++        linearSampler_.reset();
++        nearestSampler_.reset();
++        multisampling_ = plume::RenderMultisampling();
++        window_width_ = 0;
++        window_height_ = 0;
++        offscreen_ = false;
++        list_ = nullptr;
++        interface_ = nullptr;
++        device_ = nullptr;
++    }
++#endif
++
++    void create_device_objects(plume::RenderInterface* interface, plume::RenderDevice* device) {
+         interface_ = interface;
+         device_ = device;
++        swap_chain_format_ = device->getCapabilities().preferredSwapChainFormat;
+ 
+         // Enable 4X MSAA if supported by the device.
+         const plume::RenderSampleCounts desired_sample_count = plume::RenderSampleCount::COUNT_8;
+-        if (device_->getSampleCountsSupported(SwapChainFormat) & desired_sample_count) {
++        if (device_->getSampleCountsSupported(swap_chain_format_) & desired_sample_count) {
+             multisampling_.sampleCount = desired_sample_count;
+         }
+ 
+-        vertex_buffer_.flags_ = plume::RenderBufferFlag::VERTEX;
+-        index_buffer_.flags_ = plume::RenderBufferFlag::INDEX;
+-
+         // Create the texture upload buffer, vertex buffer and index buffer
+         resize_dynamic_buffer(upload_buffer_, initial_upload_buffer_size, false);
+         resize_dynamic_buffer(vertex_buffer_, initial_vertex_buffer_size, false);
+@@ -216,7 +289,11 @@ public:
+ 
+         vertex_shader_ = device_->createShader(GET_SHADER_BLOB(InterfaceVS, shaderFormat), GET_SHADER_SIZE(InterfaceVS, shaderFormat), "VSMain", shaderFormat);
+         pixel_shader_ = device_->createShader(GET_SHADER_BLOB(InterfacePS, shaderFormat), GET_SHADER_SIZE(InterfacePS, shaderFormat), "PSMain", shaderFormat);
++#if !defined(RT64_WGSL)
++        // [wcw hdr] A WebGPU canvas is never an scRGB swap chain (HdrOutput is never active), so the HDR composite is
++        // made only where it can be used, and its shader has no WGSL build.
+         hdr_pixel_shader_ = device_->createShader(GET_SHADER_BLOB(InterfaceHdrPS, shaderFormat), GET_SHADER_SIZE(InterfaceHdrPS, shaderFormat), "PSMain", shaderFormat);
++#endif
+ 
+ 
+         // Create the descriptor set that contains the sampler
+@@ -244,6 +321,7 @@ public:
+         layout_builder.end();
+         layout_ = layout_builder.create(device_);
+ 
++#if !defined(RT64_WGSL)
+         // [wcw hdr] Same sets, with the push constants visible to the HDR composite's pixel shader too.
+         plume::RenderPipelineLayoutBuilder hdr_layout_builder{};
+         hdr_layout_builder.begin(false, true);
+@@ -252,6 +330,7 @@ public:
+         hdr_layout_builder.addDescriptorSet(*texture_set_builder_);
+         hdr_layout_builder.end();
+         hdr_layout_ = hdr_layout_builder.create(device_);
++#endif
+ 
+         // Create the pipeline description
+         plume::RenderGraphicsPipelineDesc pipeline_desc{};
+@@ -268,7 +347,7 @@ public:
+             .dstBlendAlpha = plume::RenderBlend::INV_SRC_ALPHA,
+             .blendOpAlpha = plume::RenderBlendOperation::ADD,
+         };
+-        pipeline_desc.renderTargetFormat[0] = SwapChainFormat; // TODO: Use whatever format the swap chain was created with.
++        pipeline_desc.renderTargetFormat[0] = swap_chain_format_;
+         pipeline_desc.renderTargetCount = 1;
+         pipeline_desc.cullMode = plume::RenderCullMode::NONE;
+         pipeline_desc.inputSlots = &vertex_slot_;
+@@ -283,6 +362,7 @@ public:
+         pipeline_ = device_->createGraphicsPipeline(pipeline_desc);
+ 
+         // [wcw hdr] UI composite into an scRGB (R16G16B16A16_FLOAT) swap chain.
++#if !defined(RT64_WGSL)
+         {
+             plume::RenderGraphicsPipelineDesc hdr_desc = pipeline_desc;
+             hdr_desc.renderTargetFormat[0] = plume::RenderFormat::R16G16B16A16_FLOAT;
+@@ -290,6 +370,7 @@ public:
+             hdr_desc.pixelShader = hdr_pixel_shader_.get();
+             hdr_pipeline_ = device_->createGraphicsPipeline(hdr_desc);
+         }
++#endif
+ 
+         if (multisampling_.sampleCount > 1) {
+             pipeline_desc.multisampling = multisampling_;
+@@ -318,6 +399,19 @@ public:
+         copy_command_fence_ = device->createCommandFence();
+     }
+ 
++    // Unmaps an upload buffer the CPU wrote the first `written` bytes of. On WebGPU unmap() copies what it is told was
++    // written into the buffer (writeBuffer), all of it if not told: the 1 MB upload buffer at every frame, and the copy
++    // buffer, as large as the largest band of an image's rows yet (copy_band_size), at every band the menus load.
++    static void unmap_written(plume::RenderBuffer *buffer, uint64_t written) {
++#ifdef __EMSCRIPTEN__
++        const plume::RenderRange range(0, written);
++        buffer->unmap(0, &range);
++#else
++        (void)written;
++        buffer->unmap();
++#endif
++    }
++
+     void reset_dynamic_buffer(DynamicBuffer &dynamic_buffer) {
+         assert(dynamic_buffer.mapped_data_ == nullptr);
+         dynamic_buffer.bytes_used_ = 0;
+@@ -326,14 +420,14 @@ public:
+ 
+     void end_dynamic_buffer(DynamicBuffer &dynamic_buffer) {
+         assert(dynamic_buffer.mapped_data_ != nullptr);
+-        dynamic_buffer.buffer_->unmap();
++        unmap_written(dynamic_buffer.buffer_.get(), dynamic_buffer.bytes_used_);
+         dynamic_buffer.mapped_data_ = nullptr;
+     }
+ 
+     void resize_dynamic_buffer(DynamicBuffer &dynamic_buffer, uint32_t new_size, bool map = true) {
+         // Unmap the buffer if it's mapped
+         if (dynamic_buffer.mapped_data_ != nullptr) {
+-            dynamic_buffer.buffer_->unmap();
++            unmap_written(dynamic_buffer.buffer_.get(), dynamic_buffer.bytes_used_);
+         }
+         
+         // If there's already a buffer, move it into the stale buffers so it persists until the start of next frame.
+@@ -530,66 +624,64 @@ public:
+             device_->createTexture(plume::RenderTextureDesc::Texture2D(source_dimensions.x, source_dimensions.y, 1, bgra ? RmlTextureFormatBgra : RmlTextureFormat));
+ 
+         if (texture != nullptr) {
+-            uint32_t image_size_bytes = source_dimensions.x * source_dimensions.y * RmlTextureFormatBytesPerPixel;
+-
+             // Calculate the texture padding for alignment purposes.
+             uint32_t row_pitch = source_dimensions.x * RmlTextureFormatBytesPerPixel;
+             uint32_t row_byte_width, row_byte_padding;
+             CalculateTextureRowWidthPadding(row_pitch, row_byte_width, row_byte_padding);
+             uint32_t row_width = row_byte_width / RmlTextureFormatBytesPerPixel;
+ 
+-            // Calculate the real number of bytes to upload including padding.
+-            uint32_t uploaded_size_bytes = row_byte_width * source_dimensions.y;
++            // The rows uploaded at a time: all of them, or with Emscripten a band of copy_band_size.
++            uint32_t band_rows = source_dimensions.y;
++#ifdef __EMSCRIPTEN__
++            band_rows = std::clamp<uint32_t>(copy_band_size / row_byte_width, 1, source_dimensions.y);
++#endif
++            for (uint32_t first_row = 0; first_row < uint32_t(source_dimensions.y); first_row += band_rows) {
++                const uint32_t rows = std::min<uint32_t>(band_rows, source_dimensions.y - first_row);
+ 
+-            // Allocate room in the upload buffer for the uploaded data.
+-            if (uploaded_size_bytes > copy_buffer_size_) {
+-                copy_buffer_size_ = (uploaded_size_bytes * 3) / 2;
+-                copy_buffer_ = device_->createBuffer(plume::RenderBufferDesc::UploadBuffer(copy_buffer_size_));
+-            }
++                // Calculate the real number of bytes to upload including padding.
++                uint32_t uploaded_size_bytes = row_byte_width * rows;
+ 
+-            // Copy the source data into the upload buffer.
+-            uint8_t* dst_data = (uint8_t *)(copy_buffer_->map());
+-            if (row_byte_padding == 0) {
+-                // Copy row-by-row if the image is flipped.
+-                if (flip_y) {
+-                    for (int row = 0; row < source_dimensions.y; row++) {
+-                        memcpy(dst_data + row_byte_width * (source_dimensions.y - row - 1), source + row_byte_width * row, row_byte_width);
+-                    }
++                // Allocate room in the upload buffer for the uploaded data.
++                if (uploaded_size_bytes > copy_buffer_size_) {
++                    copy_buffer_size_ = (uploaded_size_bytes * 3) / 2;
++                    copy_buffer_ = device_->createBuffer(plume::RenderBufferDesc::UploadBuffer(copy_buffer_size_));
++                }
++
++                // Copy the source data into the upload buffer.
++                uint8_t* dst_data = (uint8_t *)(copy_buffer_->map());
++                if ((row_byte_padding == 0) && !flip_y) {
++                    // Directly copy if no padding is needed and the image isn't flipped.
++                    memcpy(dst_data, source + row_pitch * first_row, row_pitch * rows);
+                 }
+-                // Directly copy if no padding is needed and the image isn't flipped.
++                // Otherwise copy row-by-row, padding each row as necessary, from the bottom up if the image is flipped.
+                 else {
+-                    memcpy(dst_data, source, image_size_bytes);
++                    for (uint32_t row = first_row; row < first_row + rows; row++) {
++                        const uint32_t src_row = flip_y ? (source_dimensions.y - row - 1) : row;
++                        memcpy(dst_data + row_byte_width * (row - first_row), source + row_pitch * src_row, row_pitch);
++                    }
+                 }
+-            }
+-            // Otherwise pad each row as necessary.
+-            else {
+-                const Rml::byte *src_data = flip_y ? source + row_pitch * (source_dimensions.y - 1) : source;
+-                uint32_t src_stride = flip_y ? -row_pitch : row_pitch;
+ 
+-                for (int row = 0; row < source_dimensions.y; row++) {
+-                    memcpy(dst_data, src_data, row_pitch);
+-                    src_data += src_stride;
+-                    dst_data += row_byte_width;
+-                }
+-            }
++                unmap_written(copy_buffer_.get(), uploaded_size_bytes);
++
++                // Reset the command list.
++                copy_command_list_->begin();
+ 
+-            copy_buffer_->unmap();
++                // Prepare the texture to be a destination for copying.
++                if (first_row == 0) {
++                    copy_command_list_->barriers(plume::RenderBarrierStage::COPY, plume::RenderTextureBarrier(texture.get(), plume::RenderTextureLayout::COPY_DEST));
++                }
+ 
+-            // Reset the command list.
+-            copy_command_list_->begin();
++                // Copy the upload buffer into the texture's rows.
++                copy_command_list_->copyTextureRegion(
++                    plume::RenderTextureCopyLocation::Subresource(texture.get()),
++                    plume::RenderTextureCopyLocation::PlacedFootprint(copy_buffer_.get(), RmlTextureFormat, source_dimensions.x, rows, 1, row_width),
++                    0, first_row, 0);
+ 
+-            // Prepare the texture to be a destination for copying.
+-            copy_command_list_->barriers(plume::RenderBarrierStage::COPY, plume::RenderTextureBarrier(texture.get(), plume::RenderTextureLayout::COPY_DEST));
+-            
+-            // Copy the upload buffer into the texture.
+-            copy_command_list_->copyTextureRegion(
+-                plume::RenderTextureCopyLocation::Subresource(texture.get()),
+-                plume::RenderTextureCopyLocation::PlacedFootprint(copy_buffer_.get(), RmlTextureFormat, source_dimensions.x, source_dimensions.y, 1, row_width));
+-            
+-            // End the command list, execute it and wait.
+-            copy_command_list_->end();
+-            copy_command_queue_->executeCommandLists(copy_command_list_.get(), copy_command_fence_.get());
+-            copy_command_queue_->waitForCommandFence(copy_command_fence_.get());
++                // End the command list, execute it and wait.
++                copy_command_list_->end();
++                copy_command_queue_->executeCommandLists(copy_command_list_.get(), copy_command_fence_.get());
++                copy_command_queue_->waitForCommandFence(copy_command_fence_.get());
++            }
+ 
+             // Create a descriptor set with this texture in it.
+             std::unique_ptr<plume::RenderDescriptorSet> set = texture_set_builder_->create(device_);
+@@ -630,10 +722,10 @@ public:
+         if (offscreen) {
+             if (window_width_ != image_width || window_height_ != image_height || !offscreen_ || (screen_texture_ == nullptr)) {
+                 screen_framebuffer_.reset();
+-                screen_texture_ = device_->createTexture(plume::RenderTextureDesc::ColorTarget(image_width, image_height, SwapChainFormat));
++                screen_texture_ = device_->createTexture(plume::RenderTextureDesc::ColorTarget(image_width, image_height, swap_chain_format_));
+                 const plume::RenderTexture *color_attachment = screen_texture_.get();
+                 if (msaa) {
+-                    screen_texture_ms_ = device_->createTexture(plume::RenderTextureDesc::ColorTarget(image_width, image_height, SwapChainFormat, multisampling_));
++                    screen_texture_ms_ = device_->createTexture(plume::RenderTextureDesc::ColorTarget(image_width, image_height, swap_chain_format_, multisampling_));
+                     color_attachment = screen_texture_ms_.get();
+                 }
+ 
+@@ -692,7 +784,7 @@ public:
+ 
+             list->barriers(plume::RenderBarrierStage::GRAPHICS, plume::RenderTextureBarrier(screen_texture_.get(), plume::RenderTextureLayout::SHADER_READ));
+             list->setFramebuffer(framebuffer);
+-            const bool hdr = RT64::HdrOutput::active();
++            const bool hdr = (hdr_pipeline_ != nullptr) && RT64::HdrOutput::active();
+             list->setPipeline(hdr ? hdr_pipeline_.get() : pipeline_.get());
+             list->setGraphicsPipelineLayout(hdr ? hdr_layout_.get() : layout_.get());
+             list->setGraphicsDescriptorSet(sampler_set_.get(), 0);
+@@ -749,6 +841,19 @@ void recompui::RmlRenderInterface_RT64::init(plume::RenderInterface* interface,
+     impl = std::make_unique<RmlRenderInterface_RT64_impl>(interface, device);
+ }
+ 
++#ifdef __EMSCRIPTEN__
++void recompui::RmlRenderInterface_RT64::replace_device(plume::RenderInterface* interface, plume::RenderDevice* device) {
++    assert(static_cast<bool>(impl));
++
++    if (device == nullptr) {
++        impl->release_device_objects();
++    }
++    else {
++        impl->create_device_objects(interface, device);
++    }
++}
++#endif
++
+ Rml::RenderInterface* recompui::RmlRenderInterface_RT64::get_rml_interface() {
+     if (impl) {
+         return impl->GetAdaptedInterface();

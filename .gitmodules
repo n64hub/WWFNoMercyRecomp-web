@@ -10,3 +10,6 @@
 	path = lib/rt64
 	url = https://github.com/jessetbh/rt64.git
 	branch = wcw
+[submodule "lib/N64Recomp-browser"]
+	path = lib/N64Recomp-browser
+	url = https://github.com/n64hub/N64Recomp-browser
