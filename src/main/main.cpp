@@ -1495,8 +1495,11 @@ int main(int argc, char** argv) {
             game_options_menu->add_start_game_or_load_rom_option();
             game_options_menu->add_setup_controls_option();
             game_options_menu->add_settings_option();
+#ifndef __EMSCRIPTEN__
+            // A page has no mods (web/page.cmake leaves them out), and a program that ends leaves it dead.
             game_options_menu->add_mods_option();
             game_options_menu->add_exit_option();
+#endif
         });
     }
 

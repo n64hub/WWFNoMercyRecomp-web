@@ -51,8 +51,9 @@ it in a browser with WebGPU. The ROM, settings and saves are kept in the browser
 - Left out: ray tracing, the CRT filter and HDR, which need D3D12 or librashader; RetroAchievements
   (`src/ra/ra_client.cpp` is a stub off Windows); and the bundled mods in `assets/mods` (camera, cheats, quick match,
   model import and its starter packs): a page has no live recompiler to run a mod's code, so `web/page.cmake` leaves
-  the folder out of the page and `install_bundled_mods` installs none. MSAA: RT64 has none on WebGPU, which gives no
-  sample positions.
+  the folder out of the page and `install_bundled_mods` installs none. The launcher has no Mods or Exit on a page
+  (`src/main/main.cpp`): there are none to show, and a program that ends leaves the page dead. MSAA: RT64 has none on
+  WebGPU, which gives no sample positions.
 - On wasm32 the runtime's entry prologue indices are 32 bits (`entry_prologue_rules.hpp`), and a save backup's time is
   converted without `clock_cast`, which Emscripten's libc++ lacks (`save_backups.cpp`). Both are in
   `web/patches/N64ModernRuntime.patch`.
