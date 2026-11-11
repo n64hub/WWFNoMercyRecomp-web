@@ -143,7 +143,10 @@ fi
 # --- 4. The page ---
 step "Page"
 embuilder build sdl2-mt freetype-legacysjlj > /dev/null 2>&1
-[[ -f build-web/build.ninja ]] || emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release \
+# Configured again when web/rt64_shaders.txt came after the last configure: web/page.cmake sets the list only if the file
+# is there, and ninja has nothing to reconfigure for in a commit that only adds it.
+[[ -f build-web/build.ninja ]] && { [[ ! -f web/rt64_shaders.txt ]] ||
+    grep -q "^RT64_PREBUILT_SHADER_LIST:FILEPATH=.*/web/rt64_shaders.txt" build-web/CMakeCache.txt; } || emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DRT64_NAGA_EXECUTABLE="$(command -v naga)" -DPython3_EXECUTABLE="$(command -v python3)" > $prep/configure.log 2>&1 ||
     { tail -30 $prep/configure.log; rm -f build-web/build.ninja; exit 1; }
 cmake --build build-web --target NoMercyRecompiled -j"$jobs"
