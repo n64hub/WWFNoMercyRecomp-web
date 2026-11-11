@@ -6,6 +6,7 @@
 # then Start past the versus screen and the entrance and A to the bell, and 30 s of the match. Not played: the other
 # match types and modes (tag, ladder, cage, Survival, Royal Rumble, Smackdown Mall, the championship modes), the
 # attract demos, entrances watched through, and two humans.
+# The last line of section match was missed by a play of web/play_plan.json in Chrome, two minutes in, and added by hand.
 005041c8 0000acef fcffffff fffdf6fb 0000000b
 005041c8 0000acef fc5196a3 112cfe7f 04cb540b
 00504240 0008acef fc5196a3 112cfe7f 0ccb540c
@@ -43,3 +44,4 @@ section match
 0f0a4000 00088cff fcffffff fffe793c 08000004
 00504240 0008ecff fc121824 ff33ffff 088a0004
 00504240 0008acff fcff97ff ff2cfe7f 088a000c
+0f0a7008 0008acff fc127e24 fffff3f9 088a0004

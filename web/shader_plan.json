@@ -24,8 +24,9 @@
  "setup": [
   [
    "rom",
-   628,
-   272
+   "Enter",
+   "Enter",
+   13
   ],
   [
    "wait",
@@ -38,9 +39,10 @@
    "(() => { const d = '/home/web_user/.config/NoMercyRecompiled/saves/'; let n = 0, all; try { all = FS.readdir(d); } catch { return 0; } for (const f of all) if (/^wwf\\./.test(f)) { FS.unlink(d + f); n++; } return n; })()"
   ],
   [
-   "click",
-   628,
-   272
+   "key",
+   "Enter",
+   "Enter",
+   13
   ],
   [
    "wait",
