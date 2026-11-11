@@ -4688,6 +4688,75 @@ index 39a247f..8ef331c 100644
              rspVertexTestZMS.pipeline = device->createComputePipeline(RenderComputePipelineDesc(rspVertexTestZMS.pipelineLayout.get(), computeShaderMS.get(), 1, 1, 1));
          }
  
+diff --git a/src/render/rt64_texture_cache.cpp b/src/render/rt64_texture_cache.cpp
+index 555c9e5..b41ade1 100644
+--- a/src/render/rt64_texture_cache.cpp
++++ b/src/render/rt64_texture_cache.cpp
+@@ -339,14 +339,17 @@ namespace RT64 {
+             textureDimensions = cachedTextureDimensions[textureIndex];
+         }
+ 
+-        // Remove the existing entry from the list if it exists.
++        // Remove the existing entry from the list if it exists. A use is marked twice, when the state prepares the
++        // workload and when the workload is drawn, a few workloads apart, so the entry keeps the later of the two.
++        uint64_t accessFrame = submissionFrame;
+         AccessList::iterator listIt = listIterators[textureIndex];
+         if (listIt != accessList.end()) {
++            accessFrame = std::max(accessFrame, listIt->second);
+             accessList.erase(listIt);
+         }
+ 
+         // Push a new access entry to the front of the list and store the new iterator.
+-        accessList.push_front({ textureIndex, submissionFrame });
++        accessList.push_front({ textureIndex, accessFrame });
+         listIterators[textureIndex] = accessList.begin();
+         return true;
+     }
+@@ -1060,7 +1063,13 @@ namespace RT64 {
+                 uploadQueueChanged.wait(queueLock, [this]() {
+                     return !uploadThreadRunning || !uploadQueue.empty() || !resolvedPathQueue.empty() || !streamResultQueue.empty();
+                 });
++            }
+ 
++            // The batch runs from taking the queues until its textures and replacements are in the map, with no reload of
++            // the replacement directories in between (replacementBatchMutex).
++            std::unique_lock batchLock(replacementBatchMutex);
++            {
++                std::unique_lock queueLock(uploadQueueMutex);
+                 if (!uploadQueue.empty()) {
+                     queueCopy = uploadQueue;
+                 }
+@@ -1523,6 +1532,9 @@ namespace RT64 {
+     }
+ 
+     void TextureCache::clearReplacementDirectories() {
++        // Wait for the upload thread's batch and hold off the next (replacementBatchMutex).
++        std::lock_guard batchLock(replacementBatchMutex);
++
+         // Wait for the streaming threads to be finished.
+         waitForAllStreamThreads(true);
+ 
+@@ -1576,6 +1588,8 @@ namespace RT64 {
+     }
+     
+     bool TextureCache::loadReplacementDirectories(const std::vector<ReplacementDirectory> &replacementDirectories) {
++        // No upload batch until the new directories are loaded and their replacements queued (replacementBatchMutex).
++        std::lock_guard batchLock(replacementBatchMutex);
+         clearReplacementDirectories();
+ 
+         std::unique_lock lock(textureMapMutex);
+@@ -1631,7 +1645,10 @@ namespace RT64 {
+                 if (fileSystems[i]->load(ReplacementDatabaseFilename, databaseBytes)) {
+                     try {
+                         ReplacementDatabase db;
+-                        db = json::parse(databaseBytes.begin(), databaseBytes.end(), nullptr, true);
++                        // The bytes as chars: this json (3.9) reads a uint8_t range through std::char_traits<uint8_t>,
++                        // which Emscripten's libc++ no longer has.
++                        const char *databaseChars = reinterpret_cast<const char *>(databaseBytes.data());
++                        db = json::parse(databaseChars, databaseChars + databaseBytes.size(), nullptr, true);
+ 
+                         if (db.config.hashVersion <= TMEMHasher::CurrentHashVersion) {
+                             db.resolvePaths(fileSystems[i].get(), uint32_t(i), fileSystemResolvedPaths[i], false, nullptr, &fileSystemStreamSets[i]);
 diff --git a/src/shaders/RasterPS.hlsl b/src/shaders/RasterPS.hlsl
 index 69f7847..766c932 100644
 --- a/src/shaders/RasterPS.hlsl
