@@ -52,6 +52,11 @@ it in a browser with WebGPU. The ROM, settings and saves are kept in the browser
 - Framerate: Smooth interpolates to the display's rate (60, 120, 144), not a fixed 60, as every page does; the port's
   frame pairing spreads any rate over the game's frames. The menu shows it as Display (Smooth). Resolution is Auto,
   the canvas's size, as on the desktop.
+- Render to RAM is off (`src/main/main.cpp`): the game's CPU never reads a frame the RDP drew, nor writes into one.
+  Its two 480x240 framebuffers' addresses go only into display lists (an overlay draws the last frame as a texture,
+  the RDP's read, which RT64 does on the GPU), the swap and the scheduler's compares, and the routine that
+  zeroes them has no caller. On a page each copy waits 5-6 ms for the browser's readback, on every one of the tasks a
+  frame is drawn in.
 - Sound goes to N64Recomp-browser's `audio_output.h`, played on the browser's audio thread, resampled to its rate
   (`src/main/main.cpp`), not SDL's queue.
 - Left out: ray tracing, the CRT filter and HDR, which need D3D12 or librashader; RetroAchievements

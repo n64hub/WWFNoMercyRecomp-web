@@ -1519,6 +1519,13 @@ int main(int argc, char** argv) {
                 // buffer (fbPair1). PresentEarly presented that freshly-cleared buffer -> one
                 // pure black frame per game frame (verified by swapchain readback: a steady
                 // [content, content, BLACK] present pattern = constant visible flicker).
+#ifdef __EMSCRIPTEN__
+                // No render to RAM on a page: the game's CPU never reads a frame the RDP drew, nor writes into one (its
+                // two framebuffers' addresses go only into the display lists, the swap and the scheduler's compares, and
+                // the routine that zeroes them has no caller), and on a page each copy is a 5-6 ms wait for the
+                // browser's readback, on every task of the several each frame is drawn in (docs/web.md).
+                recompui::renderer::set_render_to_ram(false);
+#endif
                 auto ctx = recompui::renderer::create_render_context(rdram, window_handle,
                     ultramodern::renderer::PresentationMode::Console, developer_mode);
                 fprintf(stderr, "[wcw] create_render_context done (ctx=%p)\n", (void*)ctx.get());
