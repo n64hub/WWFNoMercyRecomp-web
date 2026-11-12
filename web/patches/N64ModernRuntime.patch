@@ -700,6 +700,36 @@ index 0751323..03e3363 100644
              return from_time_t(std::chrono::system_clock::to_time_t(sys));
          }
  
+diff --git a/librecomp/src/si.cpp b/librecomp/src/si.cpp
+index a7fb08b..8d45c13 100644
+--- a/librecomp/src/si.cpp
++++ b/librecomp/src/si.cpp
+@@ -134,6 +134,14 @@ static bool wcw_pak_is_rumble = false;
+ // Bounded diagnostic log of bank/ID-region pak traffic (dedup'd), to observe the game's
+ // accessory-detect and rumble-probe sequences.
+ static void wcw_log_pak_bank_op(char op, uint16_t addr, uint8_t value) {
++#if defined(__EMSCRIPTEN__)
++    // A page sends each line to its page's thread, and in a match these and the identity switch below come several
++    // times a second, as the game probes the pak every few frames.
++    (void)op;
++    (void)addr;
++    (void)value;
++    return;
++#endif
+     static int lines = 0;
+     static uint32_t last = 0xFFFFFFFF;
+     uint32_t key = ((uint32_t)op << 24) | ((uint32_t)addr << 8) | value;
+@@ -333,8 +341,10 @@ static void wcw_process_pif() {
+                 if (want_rumble != wcw_pak_is_rumble) {
+                     wcw_pak_is_rumble = want_rumble;
+                     if (!want_rumble) ultramodern::input::set_rumble(0, false);
++#if !defined(__EMSCRIPTEN__)
+                     fprintf(stderr, "[wcw][pak] identity -> %s (bank write addr=0x%04X data=0x%02X)\n",
+                             want_rumble ? "RUMBLE PAK" : "CONTROLLER PAK", addr, data[0]);
++#endif
+                 }
+                 wcw_log_pak_bank_op('W', addr, data[0]);
+             }
 diff --git a/ultramodern/include/ultramodern/renderer_context.hpp b/ultramodern/include/ultramodern/renderer_context.hpp
 index d60c4ec..a997ab4 100644
 --- a/ultramodern/include/ultramodern/renderer_context.hpp

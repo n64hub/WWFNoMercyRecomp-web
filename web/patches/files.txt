@@ -29,7 +29,8 @@
 # beside the port's live recompiler, and refuses de-relinked ROM hacks on wasm. Off with Emscripten: Datadog's send, the
 # low user segment and KSEG1 ROM mapping (they need a 4 GB reservation), and, as the port's own web changes, the entry
 # prologues' 64-bit indices (entry_prologue_rules) and clock_cast (save_backups.cpp), which wasm32 and Emscripten's
-# libc++ lack.
+# libc++ lack, and the Controller Pak's bank reads and writes and identity switches on stderr (si.cpp), which a match
+# sends to the page's thread several times a second.
 # N64Recomp: the port's tail calls for the live recompiler and the web's RECOMP_TAIL_CALL in the C it writes are both
 # kept; the port's recorded jump table ranges come first, the web's section lookup outside them.
 # RecompFrontend: the web's profiles are made first, then the port's plug-and-play assignment, so the first pad
@@ -67,6 +68,7 @@ N64ModernRuntime librecomp/src/mods.cpp
 N64ModernRuntime librecomp/src/overlays.cpp
 N64ModernRuntime librecomp/src/recomp.cpp
 N64ModernRuntime librecomp/src/save_backups.cpp
+N64ModernRuntime librecomp/src/si.cpp
 N64ModernRuntime ultramodern/include/ultramodern/renderer_context.hpp
 N64ModernRuntime ultramodern/src/events.cpp
 N64ModernRuntime ultramodern/src/mesgqueue.cpp own

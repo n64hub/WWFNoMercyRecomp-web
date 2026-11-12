@@ -62,4 +62,6 @@ it in a browser with WebGPU. The ROM, settings and saves are kept in the browser
   WebGPU, which gives no sample positions.
 - On wasm32 the runtime's entry prologue indices are 32 bits (`entry_prologue_rules.hpp`), and a save backup's time is
   converted without `clock_cast`, which Emscripten's libc++ lacks (`save_backups.cpp`). Both are in
-  `web/patches/N64ModernRuntime.patch`.
+  `web/patches/N64ModernRuntime.patch`, as is the Controller Pak's log of its bank reads and writes and identity
+  switches, off on a page (`si.cpp`): the game probes the pak every few frames in a match, and a page sends each line
+  of stderr to its page's thread.
