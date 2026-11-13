@@ -779,7 +779,7 @@ index d60c4ec..cbbc00b 100644
  
          std::string get_graphics_api_name(GraphicsApi api);
 diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
-index 4ea1af1..66a1569 100644
+index 4ea1af1..ba816f1 100644
 --- a/ultramodern/src/events.cpp
 +++ b/ultramodern/src/events.cpp
 @@ -41,7 +41,11 @@ struct DummyWorkloadAction {
@@ -829,7 +829,7 @@ index 4ea1af1..66a1569 100644
      moodycamel::BlockingConcurrentQueue<OSTask*> sp_task_queue{};
      moodycamel::ConcurrentQueue<OSThread*> deleted_threads{};
  } events_context{};
-@@ -207,6 +229,182 @@ uint64_t total_vis = 0;
+@@ -207,6 +229,189 @@ uint64_t total_vis = 0;
  
  
  extern std::atomic_bool exited;
@@ -980,6 +980,12 @@ index 4ea1af1..66a1569 100644
 +// list the renderer was still reading pointed at what the map's load had put there since: a function pointer read
 +// 0x00010001 and the page trapped, or it trapped in malloc, or it stopped drawing. Held, the game sees the stall as a
 +// console would never show it, one long VI.
++// A stall is two VIs, not six: a page whose every list took about 100 ms left the game six VIs behind each one. In
++// Firefox, its tab hidden on a busy host, Paper Mario's lists took 50-230 ms each (its render to RAM's readbacks waiting
++// on the page's thread), the game stepped its logic three times behind each, and as its intro story handed over to the
++// attract demo it freed what the list in hand pointed at: it trapped in its heap allocator, the free list corrupt, or
++// stopped drawing for good, 4-6 s after the hide in 3 plays of 3. Held after two VIs, as a console's RDP is done with a
++// list a VI or two after it starts, it came through and went on into the demo.
 +// Both sides touch only lines a game fork's own patches to this file leave alone (DKR-R-web's rewrite the VI messages'
 +// block and the graphics thread's actions).
 +namespace {
@@ -988,8 +994,9 @@ index 4ea1af1..66a1569 100644
 +    // in Firefox (each worker's own performance.timeOrigin), so only the VI thread's own clock times it.
 +    std::atomic<uint32_t> renderer_loop_turns{ 0 };
 +
-+    // Six VIs: a list or screen update takes a few ms, and on a phone 10-90 ms at the first list of a new screen.
-+    constexpr std::chrono::milliseconds renderer_stall_limit{ 100 };
++    // Two VIs: a list or screen update takes a few ms. The VI thread looks once a VI, so a game gets two or three VIs of
++    // an action before the hold. Over a timed wait's tick in Firefox (15.6 ms), so an idle thread isn't taken for one.
++    constexpr std::chrono::milliseconds renderer_stall_limit{ 30 };
 +
 +    // Whether the graphics thread has made no turn for renderer_stall_limit, as the VI thread (its only caller) has seen.
 +    // None before its loop's first turn.
@@ -1012,7 +1019,7 @@ index 4ea1af1..66a1569 100644
  extern moodycamel::LightweightSemaphore graphics_shutdown_ready;
  
  void set_dummy_vi(bool odd);
-@@ -236,10 +434,31 @@ void vi_thread_func() {
+@@ -236,10 +441,31 @@ void vi_thread_func() {
              // printf("Skipping the next VI wait\n");
              next = std::chrono::high_resolution_clock::now();
          }
@@ -1044,7 +1051,7 @@ index 4ea1af1..66a1569 100644
          if (new_total_vis > total_vis + 1) {
              //printf("Skipped % " PRId64 " frames in VI interupt thread!\n", new_total_vis - total_vis - 1);
          }
-@@ -254,6 +473,15 @@ void vi_thread_func() {
+@@ -254,6 +480,15 @@ void vi_thread_func() {
              events_context.action_queue.enqueue(DummyWorkloadAction{events_context.vi.get_next_state()->framebuffer});
          }
  
@@ -1060,7 +1067,7 @@ index 4ea1af1..66a1569 100644
          // Queue a screen update for the graphics thread with the current VI register state.
          // Doing this before the VI update is equivalent to updating the screen after the previous frame's scanout finished.
          events_context.action_queue.enqueue(ScreenUpdateAction{
-@@ -262,6 +490,7 @@ void vi_thread_func() {
+@@ -262,6 +497,7 @@ void vi_thread_func() {
  
          // Update VI registers and swap VI modes.
          events_context.vi.update_vi();
@@ -1068,7 +1075,7 @@ index 4ea1af1..66a1569 100644
  
          { // [wcw] DIAGNOSTIC: 1/s health line (game frame rate + external-message backlog).
              extern void wcw_health_tick();
-@@ -363,6 +592,13 @@ void vi_thread_func() {
+@@ -363,6 +599,13 @@ void vi_thread_func() {
  std::atomic_int wcw_spc_calls{0}, wcw_dpc_calls{0};
  
  void sp_complete() {
@@ -1082,7 +1089,7 @@ index 4ea1af1..66a1569 100644
      uint8_t* rdram = events_context.rdram;
      std::lock_guard lock{ events_context.message_mutex };
      wcw_spc_calls.fetch_add(1);
-@@ -468,6 +704,15 @@ void ultramodern::trigger_config_action() {
+@@ -468,6 +711,15 @@ void ultramodern::trigger_config_action() {
      events_context.action_queue.enqueue(UpdateConfigAction{});
  }
  
@@ -1098,7 +1105,7 @@ index 4ea1af1..66a1569 100644
  std::atomic<ultramodern::renderer::SetupResult> renderer_setup_result = ultramodern::renderer::SetupResult::Success;
  std::atomic<ultramodern::renderer::GraphicsApi> renderer_chosen_api = ultramodern::renderer::GraphicsApi::Auto;
  
-@@ -502,6 +747,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -502,6 +754,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
      while (!exited) {
          // Try to pull an action from the queue
          Action first_action;
@@ -1108,7 +1115,7 @@ index 4ea1af1..66a1569 100644
          if (events_context.action_queue.wait_dequeue_timed(first_action, 1ms)) {
              // [wcw fix] Drain the whole queue and drop STALE ScreenUpdateActions (keep only the
              // newest). Each ScreenUpdateAction is a snapshot of the VI regs at one 60Hz tick; a
-@@ -530,6 +778,12 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -530,6 +785,12 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                  if ((std::get_if<ScreenUpdateAction>(&action) != nullptr) && (action_index != last_screen_update)) {
                      continue; // stale screen update — a newer VI snapshot is in this batch
                  }
@@ -1121,7 +1128,7 @@ index 4ea1af1..66a1569 100644
              // Determine the action type and act on it
              if (const auto* task_action = std::get_if<SpTaskAction>(&action)) {
                  // [wcw fix] sp_complete() used to be signaled HERE, before send_dl — telling the
-@@ -558,7 +812,13 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -558,7 +819,13 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                  if (perf_on) { // [wcw perf] WCW_PERF_LOG
                      ultramodern::perf::phase("dl_submit", perf_start, ultramodern::perf::now_ns());
                  }
@@ -1136,7 +1143,7 @@ index 4ea1af1..66a1569 100644
                  [[maybe_unused]] auto renderer_end = std::chrono::high_resolution_clock::now();
                  { // [wcw] DIAGNOSTIC (WCW_PRESENT_LUM=1): per-task display-list processing cost on this thread.
                      static const bool wcwDlog = getenv("WCW_PRESENT_LUM") != nullptr;
-@@ -573,7 +833,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -573,7 +840,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                      }
                  }
  
@@ -1147,7 +1154,7 @@ index 4ea1af1..66a1569 100644
                  // TODO hook the parsed event up to the actual parsing point when a callback is added to RT64.
                  ultramodern::extensions::on_displaylist_parsed(displaylist);
                  ultramodern::extensions::on_displaylist_completed(displaylist);
-@@ -607,6 +869,10 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -607,6 +876,10 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
              else if (const auto* dummy_workload_action = std::get_if<DummyWorkloadAction>(&action)) {
                  renderer_context->send_dummy_workload(dummy_workload_action->fb_address);
              }

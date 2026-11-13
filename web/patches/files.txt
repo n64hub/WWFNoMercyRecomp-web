@@ -7,20 +7,21 @@
 # is left out, then and later. A file here can also carry a web change of the port's own: code of the forks that a
 # page can't compile.
 #
-# merged from N64Recomp-browser 394a5748c0d91b25c5d9bc3adfee583015e3b965
+# merged from N64Recomp-browser 726888e95c011a8ba208c10e133dbaa33c4d0a9b
 #
 # rt64: the port's frame pairing for interpolation stays, so RT64_GAME_FRAME_WORKLOADS is off (rt64_workload_queue.h
-# refuses it): the pairing needs each workload to stay a game frame of its own. Its three target sets stay too, with
-# the frames per game frame capped on a page at the targets there are. The VI rate takes the port's 2-of-3 majority
-# first and the web's rule for uneven frames where there is none. In the present queue the port's target choice, pacer,
-# CRT filter and GPU timer stay; on a page the web's present timeline takes the place of its sleep, and a newer queued
-# frame is judged once its workload is done. The web's narrower TMEM sync is left out (the port's TMEM tracking gives
-# it no start). RasterPS takes its derivatives once at the top and feeds them to the port's LOD; TextureSampler keeps
-# the port's smooth-point UVs. The web's markUsed in rt64_rdp_tmem.cpp sits on the hash-set check, as the web has it,
-# and marks the port's de-lined copy too. Ray tracing, the CRT filter and HDR are D3D12's or librashader's and do
-# nothing on a page. As the port's own web change, the texture cache reads its replacement database as chars
-# (rt64_texture_cache.cpp): the port's json, 3.9, reads bytes through a std::char_traits Emscripten's libc++ lacks, and
-# the CRT filter's Vulkan chain is left out (rt64_crt_filter.cpp), which would link Vulkan's loader into the page.
+# refuses it): the pairing needs each workload to stay a game frame of its own. Its three target sets stay too, with the
+# frames per game frame capped on a page at the targets there are. A hidden page generates no interpolated frames: the
+# web's rule, taken after the port's own. The VI rate takes the port's 2-of-3 majority first and the web's rule for
+# uneven frames where there is none. In the present queue the port's target choice, pacer, CRT filter and GPU timer
+# stay; on a page the web's present timeline takes the place of its sleep, and a newer queued frame is judged once its
+# workload is done. The web's narrower TMEM sync is left out (the port's TMEM tracking gives it no start). RasterPS
+# takes its derivatives once at the top and feeds them to the port's LOD; TextureSampler keeps the port's smooth-point
+# UVs. The web's markUsed in rt64_rdp_tmem.cpp sits on the hash-set check, as the web has it, and marks the port's
+# de-lined copy too. Ray tracing, the CRT filter and HDR are D3D12's or librashader's and do nothing on a page. As the
+# port's own web change, the texture cache reads its replacement database as chars (rt64_texture_cache.cpp): the port's
+# json, 3.9, reads bytes through a std::char_traits Emscripten's libc++ lacks, and the CRT filter's Vulkan chain is left
+# out (rt64_crt_filter.cpp), which would link Vulkan's loader into the page.
 # plume: the web's WebGPU backend and device-thread wrapper gain the port's getColorSpace() (a canvas is sRGB) and pass
 # on a queue's setName(). The examples are the port's: a page doesn't build them.
 # N64ModernRuntime: the port's message pump, which drops a message stuck 1 s, takes the place of the web's held list

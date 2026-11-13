@@ -3293,7 +3293,7 @@ index ad4c1d8..70cc248 100644
      }
  
 diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
-index 37d59c6..dd691d8 100644
+index 37d59c6..524bad0 100644
 --- a/src/hle/rt64_workload_queue.cpp
 +++ b/src/hle/rt64_workload_queue.cpp
 @@ -15,6 +15,13 @@
@@ -3951,7 +3951,24 @@ index 37d59c6..dd691d8 100644
                      matchingProfiler.reset();
                      matchingProfiler.start();
                      curFrame.match(ext.workloadGraphicsWorker, *this, prevFrame, ext.workloadVelocityUploader, velocityUploaderUsed, tileInterpolationUsed, lookAtInterpolationUsed);
-@@ -1612,9 +1991,19 @@ namespace RT64 {
+@@ -1568,6 +1947,16 @@ namespace RT64 {
+                     // test whether the black flicker frames are produced by the interpolation path.
+                     static const bool wcwNoInterp = getenv("WCW_NO_INTERP") != nullptr;
+                     generateInterpolatedFrames = !workload.paused && displayRateAboveOriginal && !interpolationTargetKey.isEmpty() && !wcwNoInterp && !multiLayerComposite;
++#               if defined(__EMSCRIPTEN__)
++                    // A hidden page presents nothing (PresentQueue::threadLoop()), so nothing holds this thread to the presents
++                    // in flight, and the frames interpolated for presents that are skipped went to the GPU all the same, one per
++                    // slot of the display's rate. Firefox takes whatever a page submits, and on a busy GPU its GPU process queued
++                    // them: Mario Party 1-3's pages, uncapped at 3840x2000 (6 frames a game frame) on an RTX 2070 kept 84-97%
++                    // busy by other work, grew it from 2.1 GB to 9-11 GB while hidden 30 s and drew 0-7 frames a second for
++                    // 25-60 s after they were shown, and Rush 2049's grew to 25.6 GB until WebGPU ran out of memory. So a
++                    // hidden page draws its game's frames only, as at its original rate.
++                    generateInterpolatedFrames = generateInterpolatedFrames && !ext.presentQueue->ext.swapChain->isHidden();
++#               endif
+ 
+                     // [wcw fix] Frame matching is running: enable the 60Hz behaviour elsewhere in the renderer.
+                     RT64::wcwInterpActive.store(true, std::memory_order_relaxed);
+@@ -1612,9 +2001,19 @@ namespace RT64 {
                      // game at 60Hz, 4 at 120Hz): the tick accounting can otherwise creep ahead and leave the present
                      // behind. WCW_HFR_CAP=<n> overrides N for debugging.
                      static const uint32_t wcwHfrCapEnv = getenv("WCW_HFR_CAP") ? uint32_t(std::max(atoi(getenv("WCW_HFR_CAP")), 2)) : 0;
@@ -3973,7 +3990,7 @@ index 37d59c6..dd691d8 100644
  
                      // At rates that aren't a multiple of the game rate (e.g. 144 Hz) game frames alternate between
                      // floor and floor+1 frames; only fewer than floor is incomplete.
-@@ -1627,11 +2016,11 @@ namespace RT64 {
+@@ -1627,11 +2026,11 @@ namespace RT64 {
                      assert(((wcwTicks.logical - wcwTicks.display) <= (workloadConfig.targetRate + workload.viOriginalRate)) && "The gap between logical ticks and display ticks can't be bigger than the target rate.");
                      assert((displayFrames > 0) && "At least one display frame must be generated.");
                  }
@@ -3988,7 +4005,7 @@ index 37d59c6..dd691d8 100644
                  
                  // Get the current and previous set of frame counters. The other set can be in use by the present queue. Skip if no new present event has arrived before this workload event.
                  InterpolatedFrameCounters &prevFrameCounters = ext.sharedResources->interpolatedFrames[ext.sharedResources->interpolatedFramesIndex];
-@@ -1672,6 +2061,9 @@ namespace RT64 {
+@@ -1672,6 +2071,9 @@ namespace RT64 {
                  }
  
                  if (useDifferentCounters) {
@@ -3998,7 +4015,7 @@ index 37d59c6..dd691d8 100644
                      ext.sharedResources->interpolatedFramesIndex = ext.sharedResources->interpolatedFramesIndex ^ 1;
                      lastPresentId = workload.presentId;
  
-@@ -1698,10 +2090,20 @@ namespace RT64 {
+@@ -1698,10 +2100,20 @@ namespace RT64 {
                  }
  
                  InterpolatedFrameCounters &curFrameCounters = ext.sharedResources->interpolatedFrames[ext.sharedResources->interpolatedFramesIndex];
@@ -4019,7 +4036,7 @@ index 37d59c6..dd691d8 100644
  
                  // Create as many render targets as required to store the interpolated targets.
                  // [wcw fix] Three target sets, chosen by run serial % 3: the real frame of a run stays intact
-@@ -1713,6 +2115,9 @@ namespace RT64 {
+@@ -1713,6 +2125,9 @@ namespace RT64 {
                  const bool usesHDR = ext.sharedResources->renderTargetManager.usesHDR;
                  uint32_t requiredFrames = (usingMSAA && generateInterpolatedFrames) ? displayFrames : (displayFrames - 1);
                  if ((requiredFrames > 0) && (interpolatedTargets.size() < requiredFrames)) {
@@ -4029,7 +4046,7 @@ index 37d59c6..dd691d8 100644
                      uint32_t previousSize = uint32_t(interpolatedTargets.size());
                      interpolatedTargets.resize(requiredFrames);
                      for (uint32_t i = previousSize; i < requiredFrames; i++) {
-@@ -1720,7 +2125,7 @@ namespace RT64 {
+@@ -1720,7 +2135,7 @@ namespace RT64 {
                      }
                  }
                  
@@ -4038,7 +4055,7 @@ index 37d59c6..dd691d8 100644
                  const int64_t setupTimeMicro = workloadTimer.elapsedMicroseconds();
                  const int64_t adjustedTimeWindowMicro = originalTimeMicro - setupTimeMicro;
                  const int64_t maxTimePerFrameMicro = adjustedTimeWindowMicro / displayFrames;
-@@ -1739,6 +2144,21 @@ namespace RT64 {
+@@ -1739,6 +2154,21 @@ namespace RT64 {
  
                  uint32_t targetIndex = 0;
                  uint32_t framesRendered = 0;
@@ -4060,7 +4077,7 @@ index 37d59c6..dd691d8 100644
                  int64_t renderTimeTotalMicro = 0;
                  for (uint32_t frame = 0; (frame < displayFrames) && !skipWorkloadNow; frame++) {
                      // Evaluate if this frame should be skipped. Measure the current time and compare it to what frame is estimated should be have been rendered by now.
-@@ -1779,7 +2199,7 @@ namespace RT64 {
+@@ -1779,7 +2209,7 @@ namespace RT64 {
                          }
                      }
                      else if (workload.paused) {
@@ -4069,7 +4086,7 @@ index 37d59c6..dd691d8 100644
                          prevFrameWeight = 1.0f - curFrameWeight;
                      }
                      else {
-@@ -1789,13 +2209,18 @@ namespace RT64 {
+@@ -1789,13 +2219,18 @@ namespace RT64 {
  
                      const bool uploadExtras = (frame == 0) && workloadConfig.raytracingEnabled;
                      if (uploadExtras) {
@@ -4092,7 +4109,7 @@ index 37d59c6..dd691d8 100644
  
                      // [wcw fix] Record which run each buffer now holds: the blend in the game framebuffer
                      // (frame 0) and the real frame in this run's target set.
-@@ -1815,7 +2240,7 @@ namespace RT64 {
+@@ -1815,7 +2250,7 @@ namespace RT64 {
  
                      // After one frame is rendered, we indicate the workload has been processed so the present thread can start presenting frames as soon as it can.
                      if (frame == 0) {
@@ -4101,7 +4118,7 @@ index 37d59c6..dd691d8 100644
                      }
  
                      // For every additional frame, we increase the frames available and notify the present queue.
-@@ -1990,8 +2415,43 @@ namespace RT64 {
+@@ -1990,8 +2425,43 @@ namespace RT64 {
  
                  threadConfigurationValidate();
  
