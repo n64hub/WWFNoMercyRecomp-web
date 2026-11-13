@@ -7,7 +7,7 @@
 # is left out, then and later. A file here can also carry a web change of the port's own: code of the forks that a
 # page can't compile.
 #
-# merged from N64Recomp-browser 73144095de33975c9973083c536c215cb252a5e0
+# merged from N64Recomp-browser 394a5748c0d91b25c5d9bc3adfee583015e3b965
 #
 # rt64: the port's frame pairing for interpolation stays, so RT64_GAME_FRAME_WORKLOADS is off (rt64_workload_queue.h
 # refuses it): the pairing needs each workload to stay a game frame of its own. Its three target sets stay too, with
@@ -25,12 +25,13 @@
 # on a queue's setName(). The examples are the port's: a page doesn't build them.
 # N64ModernRuntime: the port's message pump, which drops a message stuck 1 s, takes the place of the web's held list
 # (mesgqueue.cpp, own; ULTRAMODERN_HOLD_BLOCKED_MESSAGES does nothing here). events.cpp keeps the port's batched action
-# drain and later SP done with the web's turn counts and screen update after the VI. mods.cpp has the web's redirects
-# beside the port's live recompiler, and refuses de-relinked ROM hacks on wasm. Off with Emscripten: Datadog's send, the
-# low user segment and KSEG1 ROM mapping (they need a 4 GB reservation), and, as the port's own web changes, the entry
-# prologues' 64-bit indices (entry_prologue_rules) and clock_cast (save_backups.cpp), which wasm32 and Emscripten's
-# libc++ lack, and the Controller Pak's bank reads and writes and identity switches on stderr (si.cpp), which a match
-# sends to the page's thread several times a second.
+# drain and later SP done with the web's turn counts, screen update after the VI and wait for the renderer's
+# prepare_for_game(), an action of the batch like the others. mods.cpp has the web's redirects beside the port's live
+# recompiler, and refuses de-relinked ROM hacks on wasm. Off with Emscripten: Datadog's send, the low user segment and
+# KSEG1 ROM mapping (they need a 4 GB reservation), and, as the port's own web changes, the entry prologues' 64-bit
+# indices (entry_prologue_rules) and clock_cast (save_backups.cpp), which wasm32 and Emscripten's libc++ lack, and the
+# Controller Pak's bank reads and writes and identity switches on stderr (si.cpp), which a match sends to the page's
+# thread several times a second.
 # N64Recomp: the port's tail calls for the live recompiler and the web's RECOMP_TAIL_CALL in the C it writes are both
 # kept; the port's recorded jump table ranges come first, the web's section lookup outside them.
 # RecompFrontend: the web's profiles are made first, then the port's plug-and-play assignment, so the first pad

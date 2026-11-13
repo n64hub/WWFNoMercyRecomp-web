@@ -500,7 +500,7 @@ index 7005413..c79a090 100644
          // [wcw fix] Only map sections landing at their registered ram address. Revenge stores
          // its two swap-overlays right after the fixed image (rom 0x3C770/0x834A0), INSIDE the
 diff --git a/librecomp/src/recomp.cpp b/librecomp/src/recomp.cpp
-index faf5b96..97563dd 100644
+index faf5b96..033309f 100644
 --- a/librecomp/src/recomp.cpp
 +++ b/librecomp/src/recomp.cpp
 @@ -38,6 +38,13 @@
@@ -670,11 +670,16 @@ index faf5b96..97563dd 100644
                  }
  
                  auto find_it = game_roms.find(current_game.value());
-@@ -1006,6 +1083,11 @@ bool wait_for_game_started(uint8_t* rdram, recomp_context* context) {
+@@ -1006,6 +1083,16 @@ bool wait_for_game_started(uint8_t* rdram, recomp_context* context) {
                  save_type = game_entry.save_type;
                  ultramodern::init_saving(rdram);
  
 +#ifdef __EMSCRIPTEN__
++                // What the renderer must build before the game draws (RT64's prebuilt shaders for the game's boot, where
++                // the browser builds pipelines in line with its other GPU work) is built now, before the game's first
++                // sound, which the same wait at its first frames cut short for 0.1-11.7 s in Firefox.
++                ultramodern::renderer::prepare_for_game();
++
 +                // Tells the page its game is running, past the launcher: the shell's on-screen controller shows from here.
 +                MAIN_THREAD_ASYNC_EM_ASM({ if (Module.gameStarted) Module.gameStarted(); });
 +#endif
@@ -731,7 +736,7 @@ index a7fb08b..8d45c13 100644
                  wcw_log_pak_bank_op('W', addr, data[0]);
              }
 diff --git a/ultramodern/include/ultramodern/renderer_context.hpp b/ultramodern/include/ultramodern/renderer_context.hpp
-index d60c4ec..a997ab4 100644
+index d60c4ec..cbbc00b 100644
 --- a/ultramodern/include/ultramodern/renderer_context.hpp
 +++ b/ultramodern/include/ultramodern/renderer_context.hpp
 @@ -54,7 +54,7 @@ namespace ultramodern {
@@ -743,7 +748,18 @@ index d60c4ec..a997ab4 100644
          using WindowHandle = SDL_Window*;
  #elif defined(__APPLE__)
          struct WindowHandle {
-@@ -114,6 +114,14 @@ namespace ultramodern {
+@@ -89,6 +89,10 @@ namespace ultramodern {
+                 virtual void shutdown() = 0;
+                 virtual uint32_t get_display_framerate() const = 0;
+                 virtual float get_resolution_scale() const = 0;
++                // Called on the graphics thread before the game's code first runs, with Emscripten (prepare_for_game()):
++                // what the renderer has to build before the game draws is built here, where it holds up nothing the
++                // player hears, rather than at the game's first frames, where the game waits with its sound started.
++                virtual void prepare_for_game() {}
+ 
+             protected:
+                 SetupResult setup_result;
+@@ -114,6 +118,18 @@ namespace ultramodern {
  
          void set_callbacks(const callbacks_t& callbacks);
  
@@ -755,14 +771,31 @@ index d60c4ec..a997ab4 100644
 +        // Whether rdp_done sent the SP's and DP's messages of the task send_dl was given, which it then forgets.
 +        bool take_rdp_done();
 +
++        // Has the graphics thread run RendererContext::prepare_for_game and waits for it: from the game's thread, before
++        // its entrypoint (librecomp's wait_for_game_started()).
++        void prepare_for_game();
++
          std::unique_ptr<RendererContext> create_render_context(uint8_t* rdram, WindowHandle window_handle, bool developer_mode);
  
          std::string get_graphics_api_name(GraphicsApi api);
 diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
-index 4ea1af1..93cb9d2 100644
+index 4ea1af1..66a1569 100644
 --- a/ultramodern/src/events.cpp
 +++ b/ultramodern/src/events.cpp
-@@ -56,6 +56,24 @@ struct ViState {
+@@ -41,7 +41,11 @@ struct DummyWorkloadAction {
+     int32_t fb_address;
+ };
+ 
+-using Action = std::variant<SpTaskAction, ScreenUpdateAction, UpdateConfigAction, DummyWorkloadAction>;
++struct PrepareForGameAction {
++    moodycamel::LightweightSemaphore* done;
++};
++
++using Action = std::variant<SpTaskAction, ScreenUpdateAction, UpdateConfigAction, DummyWorkloadAction, PrepareForGameAction>;
+ 
+ struct ViState {
+     const OSViMode* mode;
+@@ -56,6 +60,24 @@ struct ViState {
  #define VI_STATE_BLACK 0x20
  #define VI_STATE_REPEATLINE 0x40
  
@@ -787,7 +820,7 @@ index 4ea1af1..93cb9d2 100644
  static struct {
      struct {
          std::thread thread;
-@@ -152,7 +170,7 @@ static struct {
+@@ -152,7 +174,7 @@ static struct {
      // The same message queue may be used for multiple events, so share a mutex for all of them
      std::mutex message_mutex;
      uint8_t* rdram;
@@ -796,7 +829,7 @@ index 4ea1af1..93cb9d2 100644
      moodycamel::BlockingConcurrentQueue<OSTask*> sp_task_queue{};
      moodycamel::ConcurrentQueue<OSThread*> deleted_threads{};
  } events_context{};
-@@ -207,6 +225,182 @@ uint64_t total_vis = 0;
+@@ -207,6 +229,182 @@ uint64_t total_vis = 0;
  
  
  extern std::atomic_bool exited;
@@ -979,7 +1012,7 @@ index 4ea1af1..93cb9d2 100644
  extern moodycamel::LightweightSemaphore graphics_shutdown_ready;
  
  void set_dummy_vi(bool odd);
-@@ -236,10 +430,31 @@ void vi_thread_func() {
+@@ -236,10 +434,31 @@ void vi_thread_func() {
              // printf("Skipping the next VI wait\n");
              next = std::chrono::high_resolution_clock::now();
          }
@@ -1011,7 +1044,7 @@ index 4ea1af1..93cb9d2 100644
          if (new_total_vis > total_vis + 1) {
              //printf("Skipped % " PRId64 " frames in VI interupt thread!\n", new_total_vis - total_vis - 1);
          }
-@@ -254,6 +469,15 @@ void vi_thread_func() {
+@@ -254,6 +473,15 @@ void vi_thread_func() {
              events_context.action_queue.enqueue(DummyWorkloadAction{events_context.vi.get_next_state()->framebuffer});
          }
  
@@ -1027,7 +1060,7 @@ index 4ea1af1..93cb9d2 100644
          // Queue a screen update for the graphics thread with the current VI register state.
          // Doing this before the VI update is equivalent to updating the screen after the previous frame's scanout finished.
          events_context.action_queue.enqueue(ScreenUpdateAction{
-@@ -262,6 +486,7 @@ void vi_thread_func() {
+@@ -262,6 +490,7 @@ void vi_thread_func() {
  
          // Update VI registers and swap VI modes.
          events_context.vi.update_vi();
@@ -1035,7 +1068,37 @@ index 4ea1af1..93cb9d2 100644
  
          { // [wcw] DIAGNOSTIC: 1/s health line (game frame rate + external-message backlog).
              extern void wcw_health_tick();
-@@ -502,6 +727,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -363,6 +592,13 @@ void vi_thread_func() {
+ std::atomic_int wcw_spc_calls{0}, wcw_dpc_calls{0};
+ 
+ void sp_complete() {
++#if ULTRAMODERN_YIELDS_END_QUEUED_GRAPHICS
++    // A graphics task's RSP done went already if a yield was asked of it while it waited (rsp::yield_asked).
++    if ((std::this_thread::get_id() == events_context.sp.gfx_thread.get_id()) && !ultramodern::rsp::graphics_sp_due()) {
++        return;
++    }
++#endif
++
+     uint8_t* rdram = events_context.rdram;
+     std::lock_guard lock{ events_context.message_mutex };
+     wcw_spc_calls.fetch_add(1);
+@@ -468,6 +704,15 @@ void ultramodern::trigger_config_action() {
+     events_context.action_queue.enqueue(UpdateConfigAction{});
+ }
+ 
++// The graphics thread takes it after every action queued before it: the launcher's lists and screen updates, all of
++// them the renderer's before the game's. With Emscripten the VI thread sends no VI while the renderer is in it
++// (renderer_stalled()), so the game, its audio interrupts included, starts after it, as if it had started then.
++void ultramodern::renderer::prepare_for_game() {
++    moodycamel::LightweightSemaphore done;
++    events_context.action_queue.enqueue(PrepareForGameAction{ &done });
++    done.wait();
++}
++
+ std::atomic<ultramodern::renderer::SetupResult> renderer_setup_result = ultramodern::renderer::SetupResult::Success;
+ std::atomic<ultramodern::renderer::GraphicsApi> renderer_chosen_api = ultramodern::renderer::GraphicsApi::Auto;
+ 
+@@ -502,6 +747,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
      while (!exited) {
          // Try to pull an action from the queue
          Action first_action;
@@ -1045,7 +1108,7 @@ index 4ea1af1..93cb9d2 100644
          if (events_context.action_queue.wait_dequeue_timed(first_action, 1ms)) {
              // [wcw fix] Drain the whole queue and drop STALE ScreenUpdateActions (keep only the
              // newest). Each ScreenUpdateAction is a snapshot of the VI regs at one 60Hz tick; a
-@@ -530,6 +758,12 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -530,6 +778,12 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                  if ((std::get_if<ScreenUpdateAction>(&action) != nullptr) && (action_index != last_screen_update)) {
                      continue; // stale screen update — a newer VI snapshot is in this batch
                  }
@@ -1058,7 +1121,7 @@ index 4ea1af1..93cb9d2 100644
              // Determine the action type and act on it
              if (const auto* task_action = std::get_if<SpTaskAction>(&action)) {
                  // [wcw fix] sp_complete() used to be signaled HERE, before send_dl — telling the
-@@ -558,7 +792,13 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -558,7 +812,13 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                  if (perf_on) { // [wcw perf] WCW_PERF_LOG
                      ultramodern::perf::phase("dl_submit", perf_start, ultramodern::perf::now_ns());
                  }
@@ -1073,7 +1136,7 @@ index 4ea1af1..93cb9d2 100644
                  [[maybe_unused]] auto renderer_end = std::chrono::high_resolution_clock::now();
                  { // [wcw] DIAGNOSTIC (WCW_PRESENT_LUM=1): per-task display-list processing cost on this thread.
                      static const bool wcwDlog = getenv("WCW_PRESENT_LUM") != nullptr;
-@@ -573,7 +813,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -573,7 +833,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                      }
                  }
  
@@ -1084,6 +1147,17 @@ index 4ea1af1..93cb9d2 100644
                  // TODO hook the parsed event up to the actual parsing point when a callback is added to RT64.
                  ultramodern::extensions::on_displaylist_parsed(displaylist);
                  ultramodern::extensions::on_displaylist_completed(displaylist);
+@@ -607,6 +869,10 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+             else if (const auto* dummy_workload_action = std::get_if<DummyWorkloadAction>(&action)) {
+                 renderer_context->send_dummy_workload(dummy_workload_action->fb_address);
+             }
++            else if (const auto* prepare_action = std::get_if<PrepareForGameAction>(&action)) {
++                renderer_context->prepare_for_game();
++                prepare_action->done->signal();
++            }
+             } // [wcw fix] end of drained-batch loop
+         }
+     }
 diff --git a/ultramodern/src/renderer_context.cpp b/ultramodern/src/renderer_context.cpp
 index a6af900..054e240 100644
 --- a/ultramodern/src/renderer_context.cpp
