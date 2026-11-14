@@ -736,7 +736,7 @@ index a7fb08b..8d45c13 100644
                  wcw_log_pak_bank_op('W', addr, data[0]);
              }
 diff --git a/ultramodern/include/ultramodern/renderer_context.hpp b/ultramodern/include/ultramodern/renderer_context.hpp
-index d60c4ec..cbbc00b 100644
+index d60c4ec..7127a3e 100644
 --- a/ultramodern/include/ultramodern/renderer_context.hpp
 +++ b/ultramodern/include/ultramodern/renderer_context.hpp
 @@ -54,7 +54,7 @@ namespace ultramodern {
@@ -759,7 +759,7 @@ index d60c4ec..cbbc00b 100644
  
              protected:
                  SetupResult setup_result;
-@@ -114,6 +118,18 @@ namespace ultramodern {
+@@ -114,6 +118,21 @@ namespace ultramodern {
  
          void set_callbacks(const callbacks_t& callbacks);
  
@@ -770,6 +770,9 @@ index d60c4ec..cbbc00b 100644
 +        void rdp_done();
 +        // Whether rdp_done sent the SP's and DP's messages of the task send_dl was given, which it then forgets.
 +        bool take_rdp_done();
++        // Whether rdp_done has sent the DP's message of the task the graphics thread is in, so the renderer reads nothing
++        // more of RDRAM for it. From any thread.
++        bool rdp_done_pending();
 +
 +        // Has the graphics thread run RendererContext::prepare_for_game and waits for it: from the game's thread, before
 +        // its entrypoint (librecomp's wait_for_game_started()).
@@ -779,7 +782,7 @@ index d60c4ec..cbbc00b 100644
  
          std::string get_graphics_api_name(GraphicsApi api);
 diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
-index 4ea1af1..ba816f1 100644
+index 4ea1af1..5bd9cc5 100644
 --- a/ultramodern/src/events.cpp
 +++ b/ultramodern/src/events.cpp
 @@ -41,7 +41,11 @@ struct DummyWorkloadAction {
@@ -829,7 +832,7 @@ index 4ea1af1..ba816f1 100644
      moodycamel::BlockingConcurrentQueue<OSTask*> sp_task_queue{};
      moodycamel::ConcurrentQueue<OSThread*> deleted_threads{};
  } events_context{};
-@@ -207,6 +229,189 @@ uint64_t total_vis = 0;
+@@ -207,6 +229,195 @@ uint64_t total_vis = 0;
  
  
  extern std::atomic_bool exited;
@@ -986,6 +989,12 @@ index 4ea1af1..ba816f1 100644
 +// attract demo it freed what the list in hand pointed at: it trapped in its heap allocator, the free list corrupt, or
 +// stopped drawing for good, 4-6 s after the hide in 3 plays of 3. Held after two VIs, as a console's RDP is done with a
 +// list a VI or two after it starts, it came through and went on into the demo.
++// Nor once the renderer has told the game the list in hand is done (renderer::rdp_done): it reads nothing more of RDRAM
++// for it, and what is left is its own work, the wait for a busy GPU included. Held there, the game's clock stopped for
++// nothing, and its sound with it, which nothing makes up afterwards: Rush 2049's page in Firefox, uncapped and its tab
++// hidden, held its VIs 91-105 times a play (9.5-11.9 s in all) and its sound ran 238,000-253,000 frames short, most of
++// it through a 5 s wait for a section's prebuilt shaders as its attract race starts; lifted at the RDP's done, it held 4
++// times (only before its sound starts) and lost none.
 +// Both sides touch only lines a game fork's own patches to this file leave alone (DKR-R-web's rewrite the VI messages'
 +// block and the graphics thread's actions).
 +namespace {
@@ -1005,7 +1014,7 @@ index 4ea1af1..ba816f1 100644
 +        static std::chrono::steady_clock::time_point seen_time{};
 +        const uint32_t turns = renderer_loop_turns.load();
 +        const auto now = std::chrono::steady_clock::now();
-+        if ((turns == 0) || (turns != seen_turns)) {
++        if ((turns == 0) || (turns != seen_turns) || ultramodern::renderer::rdp_done_pending()) {
 +            seen_turns = turns;
 +            seen_time = now;
 +            return false;
@@ -1019,7 +1028,7 @@ index 4ea1af1..ba816f1 100644
  extern moodycamel::LightweightSemaphore graphics_shutdown_ready;
  
  void set_dummy_vi(bool odd);
-@@ -236,10 +441,31 @@ void vi_thread_func() {
+@@ -236,10 +447,31 @@ void vi_thread_func() {
              // printf("Skipping the next VI wait\n");
              next = std::chrono::high_resolution_clock::now();
          }
@@ -1051,7 +1060,7 @@ index 4ea1af1..ba816f1 100644
          if (new_total_vis > total_vis + 1) {
              //printf("Skipped % " PRId64 " frames in VI interupt thread!\n", new_total_vis - total_vis - 1);
          }
-@@ -254,6 +480,15 @@ void vi_thread_func() {
+@@ -254,6 +486,15 @@ void vi_thread_func() {
              events_context.action_queue.enqueue(DummyWorkloadAction{events_context.vi.get_next_state()->framebuffer});
          }
  
@@ -1067,7 +1076,7 @@ index 4ea1af1..ba816f1 100644
          // Queue a screen update for the graphics thread with the current VI register state.
          // Doing this before the VI update is equivalent to updating the screen after the previous frame's scanout finished.
          events_context.action_queue.enqueue(ScreenUpdateAction{
-@@ -262,6 +497,7 @@ void vi_thread_func() {
+@@ -262,6 +503,7 @@ void vi_thread_func() {
  
          // Update VI registers and swap VI modes.
          events_context.vi.update_vi();
@@ -1075,7 +1084,7 @@ index 4ea1af1..ba816f1 100644
  
          { // [wcw] DIAGNOSTIC: 1/s health line (game frame rate + external-message backlog).
              extern void wcw_health_tick();
-@@ -363,6 +599,13 @@ void vi_thread_func() {
+@@ -363,6 +605,13 @@ void vi_thread_func() {
  std::atomic_int wcw_spc_calls{0}, wcw_dpc_calls{0};
  
  void sp_complete() {
@@ -1089,7 +1098,7 @@ index 4ea1af1..ba816f1 100644
      uint8_t* rdram = events_context.rdram;
      std::lock_guard lock{ events_context.message_mutex };
      wcw_spc_calls.fetch_add(1);
-@@ -468,6 +711,15 @@ void ultramodern::trigger_config_action() {
+@@ -468,6 +717,15 @@ void ultramodern::trigger_config_action() {
      events_context.action_queue.enqueue(UpdateConfigAction{});
  }
  
@@ -1105,7 +1114,7 @@ index 4ea1af1..ba816f1 100644
  std::atomic<ultramodern::renderer::SetupResult> renderer_setup_result = ultramodern::renderer::SetupResult::Success;
  std::atomic<ultramodern::renderer::GraphicsApi> renderer_chosen_api = ultramodern::renderer::GraphicsApi::Auto;
  
-@@ -502,6 +754,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -502,6 +760,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
      while (!exited) {
          // Try to pull an action from the queue
          Action first_action;
@@ -1115,7 +1124,7 @@ index 4ea1af1..ba816f1 100644
          if (events_context.action_queue.wait_dequeue_timed(first_action, 1ms)) {
              // [wcw fix] Drain the whole queue and drop STALE ScreenUpdateActions (keep only the
              // newest). Each ScreenUpdateAction is a snapshot of the VI regs at one 60Hz tick; a
-@@ -530,6 +785,12 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -530,6 +791,12 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                  if ((std::get_if<ScreenUpdateAction>(&action) != nullptr) && (action_index != last_screen_update)) {
                      continue; // stale screen update — a newer VI snapshot is in this batch
                  }
@@ -1128,7 +1137,7 @@ index 4ea1af1..ba816f1 100644
              // Determine the action type and act on it
              if (const auto* task_action = std::get_if<SpTaskAction>(&action)) {
                  // [wcw fix] sp_complete() used to be signaled HERE, before send_dl — telling the
-@@ -558,7 +819,13 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -558,7 +825,13 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                  if (perf_on) { // [wcw perf] WCW_PERF_LOG
                      ultramodern::perf::phase("dl_submit", perf_start, ultramodern::perf::now_ns());
                  }
@@ -1143,7 +1152,7 @@ index 4ea1af1..ba816f1 100644
                  [[maybe_unused]] auto renderer_end = std::chrono::high_resolution_clock::now();
                  { // [wcw] DIAGNOSTIC (WCW_PRESENT_LUM=1): per-task display-list processing cost on this thread.
                      static const bool wcwDlog = getenv("WCW_PRESENT_LUM") != nullptr;
-@@ -573,7 +840,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -573,7 +846,9 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
                      }
                  }
  
@@ -1154,7 +1163,7 @@ index 4ea1af1..ba816f1 100644
                  // TODO hook the parsed event up to the actual parsing point when a callback is added to RT64.
                  ultramodern::extensions::on_displaylist_parsed(displaylist);
                  ultramodern::extensions::on_displaylist_completed(displaylist);
-@@ -607,6 +876,10 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
+@@ -607,6 +882,10 @@ void gfx_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_re
              else if (const auto* dummy_workload_action = std::get_if<DummyWorkloadAction>(&action)) {
                  renderer_context->send_dummy_workload(dummy_workload_action->fb_address);
              }
@@ -1166,10 +1175,16 @@ index 4ea1af1..ba816f1 100644
          }
      }
 diff --git a/ultramodern/src/renderer_context.cpp b/ultramodern/src/renderer_context.cpp
-index a6af900..054e240 100644
+index a6af900..36fa9a1 100644
 --- a/ultramodern/src/renderer_context.cpp
 +++ b/ultramodern/src/renderer_context.cpp
-@@ -10,6 +10,27 @@ void ultramodern::renderer::set_callbacks(const callbacks_t& callbacks) {
+@@ -1,4 +1,5 @@
+ #include <cassert>
++#include <atomic>
+ #include <mutex>
+ 
+ #include "ultramodern/renderer_context.hpp"
+@@ -10,6 +11,29 @@ void ultramodern::renderer::set_callbacks(const callbacks_t& callbacks) {
      render_callbacks = callbacks;
  }
  
@@ -1177,8 +1192,8 @@ index a6af900..054e240 100644
 +void dp_complete();
 +
 +// Whether rdp_done sent the SP's and DP's messages of the graphics task send_dl was given. Only the graphics thread
-+// touches it.
-+static bool rdp_done_sent = false;
++// writes it; the VI thread reads it (rdp_done_pending).
++static std::atomic<bool> rdp_done_sent{ false };
 +
 +void ultramodern::renderer::rdp_done() {
 +    // The SP's message goes first, as on a console: the graphics thread sends it only once send_dl has read the task's
@@ -1189,9 +1204,11 @@ index a6af900..054e240 100644
 +}
 +
 +bool ultramodern::renderer::take_rdp_done() {
-+    const bool sent = rdp_done_sent;
-+    rdp_done_sent = false;
-+    return sent;
++    return rdp_done_sent.exchange(false);
++}
++
++bool ultramodern::renderer::rdp_done_pending() {
++    return rdp_done_sent.load();
 +}
 +
  

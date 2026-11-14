@@ -1,5 +1,5 @@
 diff --git a/recompinput/src/input_events.cpp b/recompinput/src/input_events.cpp
-index f36ce15..3838140 100644
+index f36ce15..15cf4d1 100644
 --- a/recompinput/src/input_events.cpp
 +++ b/recompinput/src/input_events.cpp
 @@ -6,6 +6,12 @@
@@ -95,7 +95,15 @@ index f36ce15..3838140 100644
      switch (event->type) {
      case SDL_EventType::SDL_KEYDOWN:
      {
-@@ -103,6 +181,13 @@ bool sdl_event_filter(void* userdata, SDL_Event* event) {
+@@ -85,6 +163,7 @@ bool sdl_event_filter(void* userdata, SDL_Event* event) {
+                 SDL_GameControllerSetSensorEnabled(controller, SDL_SensorType::SDL_SENSOR_GYRO, SDL_TRUE);
+                 SDL_GameControllerSetSensorEnabled(controller, SDL_SensorType::SDL_SENSOR_ACCEL, SDL_TRUE);
+             }
++            players::reconnect_player_controller(controller);
+         }
+         
+         ControllerGUID guid = profiles::get_guid_from_sdl_controller(controller);
+@@ -103,6 +182,13 @@ bool sdl_event_filter(void* userdata, SDL_Event* event) {
                  profiles::add_controller(guid, profile_index);
              }
          }
@@ -109,7 +117,7 @@ index f36ce15..3838140 100644
  
          // [wcw fix] Plug-and-play multiplayer: claim a player slot for the new pad (no-op in
          // single-player mode or during manual assignment). Runs after the profile registration
-@@ -121,7 +206,12 @@ bool sdl_event_filter(void* userdata, SDL_Event* event) {
+@@ -121,7 +207,12 @@ bool sdl_event_filter(void* userdata, SDL_Event* event) {
      }
      break;
      case SDL_EventType::SDL_QUIT: {
@@ -123,7 +131,7 @@ index f36ce15..3838140 100644
              ultramodern::quit();
              return true;
          }
-@@ -266,6 +356,9 @@ void handle_events() {
+@@ -266,6 +357,9 @@ void handle_events() {
      SDL_Event cur_event;
      static bool started = false;
      static bool exited = false;
