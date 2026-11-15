@@ -7,7 +7,7 @@
 # is left out, then and later. A file here can also carry a web change of the port's own: code of the forks that a
 # page can't compile.
 #
-# merged from N64Recomp-browser dc2c951dfbcfeba7e07b654a69d26293ddf45ef8
+# merged from N64Recomp-browser ffa895caadeaa1936212bfc75b0fb4f736bf1ecc
 #
 # rt64: the port's frame pairing for interpolation stays, so RT64_GAME_FRAME_WORKLOADS is off (rt64_workload_queue.h
 # refuses it): the pairing needs each workload to stay a game frame of its own. Its three target sets stay too, with the
@@ -22,8 +22,11 @@
 # port's own web change, the texture cache reads its replacement database as chars (rt64_texture_cache.cpp): the port's
 # json, 3.9, reads bytes through a std::char_traits Emscripten's libc++ lacks, and the CRT filter's Vulkan chain is left
 # out (rt64_crt_filter.cpp), which would link Vulkan's loader into the page.
+# rt64_application.cpp: a device replaced keeps its window, around the port's setup logging.
 # plume: the web's WebGPU backend and device-thread wrapper gain the port's getColorSpace() (a canvas is sRGB) and pass
-# on a queue's setName(). The examples are the port's: a page doesn't build them.
+# on a queue's setName(). The examples are the port's: a page doesn't build them. So is D3D12 (plume_d3d12.cpp and .h),
+# which a page doesn't build either: the port's own answer to a removed device (scratch memory from map(), then quitting)
+# stays in place of the web's (a null map(), RT64 starting again on a new device).
 # N64ModernRuntime: the port's message pump, which drops a message stuck 1 s, takes the place of the web's held list
 # (mesgqueue.cpp, own; ULTRAMODERN_HOLD_BLOCKED_MESSAGES does nothing here). events.cpp keeps the port's batched action
 # drain and later SP done with the web's turn counts, screen update after the VI and wait for the renderer's
@@ -42,6 +45,7 @@
 rt64 CMakeLists.txt
 rt64 src/common/rt64_tmem_hasher.h
 rt64 src/gbi/rt64_gbi.cpp
+rt64 src/hle/rt64_application.cpp
 rt64 src/hle/rt64_framebuffer_manager.cpp
 rt64 src/hle/rt64_framebuffer_manager.h
 rt64 src/hle/rt64_game_frame.cpp
@@ -61,6 +65,8 @@ plume plume_render_interface.h
 plume plume_webgpu.h
 plume plume_webgpu.cpp
 plume plume_device_thread.cpp
+plume plume_d3d12.cpp own
+plume plume_d3d12.h own
 plume examples/CMakeLists.txt own
 plume examples/cube/main.cpp own
 plume examples/triangle/main.cpp own
