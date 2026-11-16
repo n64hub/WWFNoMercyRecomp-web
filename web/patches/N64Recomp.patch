@@ -277,10 +277,10 @@ index d5d7dc5..14a8dbc 100644
              // [wcw fullconv] Stop at the end of the ROM instead of reading past it.
              if ((size_t)rom_addr + sizeof(uint32_t) > context.rom.size()) {
 diff --git a/src/recompilation.cpp b/src/recompilation.cpp
-index 04041c0..55c8fc6 100644
+index f046a74..b7e4870 100644
 --- a/src/recompilation.cpp
 +++ b/src/recompilation.cpp
-@@ -302,7 +302,7 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+@@ -303,7 +303,7 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
          return true;
      };
  
@@ -289,7 +289,7 @@ index 04041c0..55c8fc6 100644
          if (!process_delay_slot(false)) {
              return false;
          }
-@@ -310,6 +310,9 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+@@ -311,6 +311,9 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
          if (context.tail_call_unknown_jumps_by_lookup) {
              generator.emit_save_sp();
          }
@@ -299,7 +299,7 @@ index 04041c0..55c8fc6 100644
          generator.emit_function_call_by_register(reg);
          if (context.tail_call_unknown_jumps_by_lookup) {
              generator.emit_return_if_sp_changed(context, func_index);
-@@ -403,6 +406,9 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+@@ -404,6 +407,9 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
                  generator.emit_save_sp();
              }
              generator.set_tail_call(tail_call);
@@ -309,7 +309,7 @@ index 04041c0..55c8fc6 100644
              if (reloc_reference_symbol != (size_t)-1) {
                  generator.emit_function_call_reference_symbol(context, reloc_section, reloc_reference_symbol, reloc_target_section_offset);
              }
-@@ -660,13 +666,14 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
+@@ -674,13 +680,14 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
                  print_indent();
                  generator.emit_return_if_ra_token(rs, context, func_index);
                  generator.set_tail_call(true);

@@ -576,7 +576,7 @@ index 6e62fd1..73d2df4 100644
  
          static bool requiresRawTMEM(const LoadTile &loadTile, uint16_t width, uint16_t height) {
 diff --git a/src/gbi/rt64_gbi.cpp b/src/gbi/rt64_gbi.cpp
-index 592706f..e7a382a 100644
+index a7f3dea..ebe42a9 100644
 --- a/src/gbi/rt64_gbi.cpp
 +++ b/src/gbi/rt64_gbi.cpp
 @@ -151,6 +151,7 @@ namespace RT64 {
@@ -644,13 +644,27 @@ index 592706f..e7a382a 100644
                      if (textInstance == dataInstance) {
                          matchingInstance = dataInstance;
                          break;
-@@ -493,10 +515,10 @@ namespace RT64 {
+@@ -493,7 +515,7 @@ namespace RT64 {
          }
  
          // [wcw] aki-roadmap#282: a hack's text (hooks in its padding) misses, its stock data names the ucode.
 -        const size_t dataInstances = (dataSegmentIndex >= 0) ? dataSegments[dataSegmentIndex].instances.size() : 0;
 +        const size_t dataInstances = (dataSegmentIndex >= 0) ? dataSegment->instances.size() : 0;
-         const WcwLogic::GbiPick pick = WcwLogic::gbiPick(textSegmentIndex >= 0, dataSegmentIndex >= 0, matchingInstance != nullptr, dataInstances);
+ 
+         // [wcw] aki-roadmap#306: when no hash decides, the ucode's own name string (in its data segment) may name an
+         // instance. Only read on a miss.
+@@ -505,7 +527,7 @@ namespace RT64 {
+             namedInstance = findInstanceByName(WcwLogic::gbiInstanceNameFromUcodeName(ucodeName));
+             if ((namedInstance != nullptr) && (dataSegmentIndex >= 0)) {
+                 // a data hash that narrowed the choice to several instances: the name only picks among them
+-                const auto &candidates = dataSegments[dataSegmentIndex].instances;
++                const auto &candidates = dataSegment->instances;
+                 if (std::find(candidates.begin(), candidates.end(), namedInstance) == candidates.end()) {
+                     namedInstance = nullptr;
+                 }
+@@ -520,7 +542,7 @@ namespace RT64 {
+                 ucodeName.c_str(), matchingInstance->name, textAddress, dataAddress, XXH3_64bits(&RDRAM[textAddress], 0x1000));
+         }
          if (pick == WcwLogic::GbiPick::DataOnly) {
 -            matchingInstance = dataSegments[dataSegmentIndex].instances[0];
 +            matchingInstance = dataSegment->instances[0];

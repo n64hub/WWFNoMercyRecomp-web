@@ -1,5 +1,5 @@
 diff --git a/recompinput/src/input_events.cpp b/recompinput/src/input_events.cpp
-index f36ce15..15cf4d1 100644
+index cb8d335..25a24b8 100644
 --- a/recompinput/src/input_events.cpp
 +++ b/recompinput/src/input_events.cpp
 @@ -6,6 +6,12 @@
@@ -131,7 +131,7 @@ index f36ce15..15cf4d1 100644
              ultramodern::quit();
              return true;
          }
-@@ -266,6 +357,9 @@ void handle_events() {
+@@ -275,6 +366,9 @@ void handle_events() {
      SDL_Event cur_event;
      static bool started = false;
      static bool exited = false;
@@ -142,7 +142,7 @@ index f36ce15..15cf4d1 100644
          exited = sdl_event_filter(nullptr, &cur_event);
  
 diff --git a/recompui/CMakeLists.txt b/recompui/CMakeLists.txt
-index b23f9fd..6f32ba5 100644
+index d97279b..e371014 100644
 --- a/recompui/CMakeLists.txt
 +++ b/recompui/CMakeLists.txt
 @@ -52,6 +52,12 @@ set(RT64_STATIC TRUE)

@@ -72,10 +72,10 @@ index b00e909..870c44a 100644
  }
  
 diff --git a/librecomp/src/mods.cpp b/librecomp/src/mods.cpp
-index eb6dfe1..1fd4ea3 100644
+index 9b7acda..dc3c525 100644
 --- a/librecomp/src/mods.cpp
 +++ b/librecomp/src/mods.cpp
-@@ -128,6 +128,9 @@ bool get_to_vec(const nlohmann::json& val, std::vector<T2>& out) {
+@@ -130,6 +130,9 @@ bool get_to_vec(const nlohmann::json& val, std::vector<T2>& out) {
  // MSVC/GCC/Clang ARM64
  #elif defined(__ARM_ARCH_ISA_A64)
  #   define IS_ARM64
@@ -85,7 +85,7 @@ index eb6dfe1..1fd4ea3 100644
  #else
  #   error "Unsupported architecture!"
  #endif
-@@ -508,7 +511,9 @@ void recomp::mods::DynamicLibraryCodeHandle::set_imported_function(size_t import
+@@ -510,7 +513,9 @@ void recomp::mods::DynamicLibraryCodeHandle::set_imported_function(size_t import
      }, func);
  }
  
@@ -96,7 +96,7 @@ index eb6dfe1..1fd4ea3 100644
      size_t reference_symbol_index = 0;
      for (const auto& section : context.sections) {
          for (const auto& reloc : section.relocs) {
-@@ -530,10 +535,35 @@ recomp::mods::CodeModLoadError recomp::mods::DynamicLibraryCodeHandle::populate_
+@@ -532,10 +537,35 @@ recomp::mods::CodeModLoadError recomp::mods::DynamicLibraryCodeHandle::populate_
      return CodeModLoadError::Good;
  }
  
@@ -132,7 +132,7 @@ index eb6dfe1..1fd4ea3 100644
      if (!regenerated) {
         section_addresses = std::make_unique<int32_t[]>(context.sections.size());
      }
-@@ -585,8 +615,12 @@ recomp::mods::LiveRecompilerCodeHandle::LiveRecompilerCodeHandle(
+@@ -588,8 +618,12 @@ recomp::mods::LiveRecompilerCodeHandle::LiveRecompilerCodeHandle(
      // Generate the code.
      recompiler_output = std::make_unique<N64Recomp::LiveGeneratorOutput>(generator.finish());
      is_good = !errored && recompiler_output->good;
@@ -145,7 +145,7 @@ index eb6dfe1..1fd4ea3 100644
  void recomp::mods::LiveRecompilerCodeHandle::set_imported_function(size_t import_index, GenericFunction func) {
      std::visit(overloaded {
          [this, import_index](recomp_func_t* native_func) {
-@@ -618,8 +652,135 @@ recomp::mods::CodeModLoadError recomp::mods::LiveRecompilerCodeHandle::populate_
+@@ -621,8 +655,135 @@ recomp::mods::CodeModLoadError recomp::mods::LiveRecompilerCodeHandle::populate_
  recomp::mods::GenericFunction recomp::mods::LiveRecompilerCodeHandle::get_function_handle(size_t func_index) {
      return GenericFunction{ recompiler_output->functions[func_index] };
  }
@@ -281,7 +281,7 @@ index eb6dfe1..1fd4ea3 100644
      uint8_t* target_func_u8 = reinterpret_cast<uint8_t*>(target_func);
      size_t offset = 0;
  
-@@ -654,13 +815,20 @@ void patch_func(recomp_func_t* target_func, recomp::mods::GenericFunction replac
+@@ -657,13 +818,20 @@ void patch_func(recomp_func_t* target_func, recomp::mods::GenericFunction replac
  #endif
  
      protect(target_func_u8, old_flags);
@@ -302,7 +302,7 @@ index eb6dfe1..1fd4ea3 100644
  }
  
  void recomp::mods::ModContext::add_opened_mod(ModManifest&& manifest, config::Config&& config, std::vector<size_t>&& game_indices, std::vector<ModContentTypeId>&& detected_content_types, std::vector<char>&& thumbnail) {
-@@ -700,6 +868,10 @@ void recomp::mods::ModContext::register_embedded_mod(const std::string &mod_id,
+@@ -703,6 +871,10 @@ void recomp::mods::ModContext::register_embedded_mod(const std::string &mod_id,
      embedded_mod_bytes.emplace(mod_id, mod_bytes);
  }
  
@@ -313,7 +313,7 @@ index eb6dfe1..1fd4ea3 100644
  void recomp::mods::ModContext::register_deprecated_mod(const std::string& mod_id, DeprecationStatus deprecation_status, const Version &maximum_version) {
      deprecated_mods[mod_id].status = deprecation_status;
      deprecated_mods[mod_id].maximum_version = maximum_version;
-@@ -2246,6 +2418,23 @@ static std::unordered_set<const void*> functions_with_entry_hooks{};
+@@ -2249,6 +2421,23 @@ static std::unordered_set<const void*> functions_with_entry_hooks{};
  // A mod's replacement of a function (RECOMP_PATCH): live codes leave those alone too.
  static std::unordered_set<const void*> functions_replaced_by_mods{};
  
@@ -337,7 +337,7 @@ index eb6dfe1..1fd4ea3 100644
  // [wcw fullconv] tail_call_unknown: a jump to an address outside the regenerated functions is a tail
  // call through the function lookup (ROM-patch code jumping to code a hack added).
  std::unique_ptr<recomp::mods::LiveRecompilerCodeHandle> apply_regenlist(RegeneratedList& regenlist, std::span<const uint8_t> rom, bool tail_call_unknown = false) {
-@@ -2255,7 +2444,12 @@ std::unique_ptr<recomp::mods::LiveRecompilerCodeHandle> apply_regenlist(Regenera
+@@ -2258,7 +2447,12 @@ std::unique_ptr<recomp::mods::LiveRecompilerCodeHandle> apply_regenlist(Regenera
  
      // [wcw fullconv] The port's entry prologues go with the static functions they belong to (aki-roadmap#76).
      if (!entry_prologue_of.empty()) {
@@ -351,7 +351,7 @@ index eb6dfe1..1fd4ea3 100644
          const size_t kept = entry_prologues::add_to_entry_hooks(replaced, entry_prologue_of, regenlist.entry_func_hooks);
          if (kept != 0) {
              fprintf(stderr, "[live recompiler] %zu regenerated function(s) keep the port's entry prologue\n", kept);
-@@ -3057,6 +3251,16 @@ std::vector<recomp::mods::ModLoadErrorDetails> recomp::mods::ModContext::load_re
+@@ -3060,6 +3254,16 @@ std::vector<recomp::mods::ModLoadErrorDetails> recomp::mods::ModContext::load_re
          return std::vector<ModLoadErrorDetails>{ ModLoadErrorDetails{ mod_id, ModLoadError::FailedToLoadPatch, "relink.json: " + why } };
      };
  
@@ -368,7 +368,7 @@ index eb6dfe1..1fd4ea3 100644
      // code the hack loads into RAM at run time: compiled from RDRAM when first looked up (compile_ram_function)
      relink_rdram = rdram;
      recomp::overlays::set_missing_function_handler(compile_ram_function);
-@@ -3227,6 +3431,9 @@ std::vector<recomp::mods::ModLoadErrorDetails> recomp::mods::ModContext::regener
+@@ -3230,6 +3434,9 @@ std::vector<recomp::mods::ModLoadErrorDetails> recomp::mods::ModContext::regener
  
      // Apply the regenlist.
      if (!regenlist.functions.empty()) {
@@ -378,7 +378,7 @@ index eb6dfe1..1fd4ea3 100644
          regenerated_code_handle = apply_regenlist(regenlist, decompressed_rom);
          if (!regenerated_code_handle || !regenerated_code_handle->good()) {
              regenerated_code_handle.reset();
-@@ -3235,6 +3442,7 @@ std::vector<recomp::mods::ModLoadErrorDetails> recomp::mods::ModContext::regener
+@@ -3238,6 +3445,7 @@ std::vector<recomp::mods::ModLoadErrorDetails> recomp::mods::ModContext::regener
              });
              return ret;
          }
@@ -386,7 +386,7 @@ index eb6dfe1..1fd4ea3 100644
      }
  
      if (!regenlist.patched_hooks.empty()) {
-@@ -3275,6 +3483,9 @@ std::vector<recomp::mods::ModLoadErrorDetails> recomp::mods::ModContext::regener
+@@ -3278,6 +3486,9 @@ std::vector<recomp::mods::ModLoadErrorDetails> recomp::mods::ModContext::regener
          }
  
          // Apply the patched function regenlist.
@@ -396,7 +396,7 @@ index eb6dfe1..1fd4ea3 100644
          base_patched_code_handle = apply_regenlist(patch_regenlist, overlays::get_patch_binary());
          if (!base_patched_code_handle || !base_patched_code_handle->good()) {
              regenerated_code_handle.reset();
-@@ -3284,6 +3495,7 @@ std::vector<recomp::mods::ModLoadErrorDetails> recomp::mods::ModContext::regener
+@@ -3287,6 +3498,7 @@ std::vector<recomp::mods::ModLoadErrorDetails> recomp::mods::ModContext::regener
              });
              return ret;
          }
@@ -404,7 +404,7 @@ index eb6dfe1..1fd4ea3 100644
      }
  
      return ret;
-@@ -3341,6 +3553,10 @@ recomp::mods::CodeModLoadError recomp::mods::ModContext::init_mod_code(uint8_t*
+@@ -3344,6 +3556,10 @@ recomp::mods::CodeModLoadError recomp::mods::ModContext::init_mod_code(uint8_t*
  
      std::span<uint8_t> binary_span {reinterpret_cast<uint8_t*>(binary_data.data()), binary_data.size() };
  
@@ -415,7 +415,7 @@ index eb6dfe1..1fd4ea3 100644
      // Parse the symbol file into the recompiler context.
      N64Recomp::ModSymbolsError symbol_load_error = N64Recomp::parse_mod_symbols(syms_data, binary_span, section_vrom_map, *mod.recompiler_context);
      if (symbol_load_error != N64Recomp::ModSymbolsError::Good) {
-@@ -3512,10 +3728,28 @@ recomp::mods::CodeModLoadError recomp::mods::ModContext::load_mod_code(uint8_t*
+@@ -3515,10 +3731,28 @@ recomp::mods::CodeModLoadError recomp::mods::ModContext::load_mod_code(uint8_t*
          .reference_section_addresses = section_addresses,
      };
  
@@ -445,7 +445,7 @@ index eb6dfe1..1fd4ea3 100644
          // Hooks can't be generated for native mods, so return an error if any of the functions this mod replaces are also hooked by another mod.
          if (!entry_func_hooks.empty() || !return_func_hooks.empty()) {
              return CodeModLoadError::OfflineModHooked;
-@@ -3775,12 +4009,27 @@ recomp::mods::CodeModLoadError recomp::mods::ModContext::resolve_code_dependenci
+@@ -3778,12 +4012,27 @@ recomp::mods::CodeModLoadError recomp::mods::ModContext::resolve_code_dependenci
  
          // Copy the original bytes so they can be restored later after the mod is unloaded.
          PatchData& cur_replacement_data = patched_funcs[to_replace];
@@ -473,7 +473,7 @@ index eb6dfe1..1fd4ea3 100644
      }
  
      return CodeModLoadError::Good;
-@@ -3791,6 +4040,9 @@ void recomp::mods::ModContext::unload_mods() {
+@@ -3794,6 +4043,9 @@ void recomp::mods::ModContext::unload_mods() {
          unpatch_func(reinterpret_cast<void*>(replacement_func), replacement_data);
      }
      patched_funcs.clear();
@@ -484,7 +484,7 @@ index eb6dfe1..1fd4ea3 100644
      hook_slots.clear();
      processed_hook_slots.clear();
 diff --git a/librecomp/src/overlays.cpp b/librecomp/src/overlays.cpp
-index 7005413..c79a090 100644
+index 6999439..a05e440 100644
 --- a/librecomp/src/overlays.cpp
 +++ b/librecomp/src/overlays.cpp
 @@ -245,8 +245,9 @@ extern "C" void load_overlays(uint32_t rom, int32_t ram_addr, uint32_t size) {
