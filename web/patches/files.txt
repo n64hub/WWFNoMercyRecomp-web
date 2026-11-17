@@ -7,7 +7,7 @@
 # is left out, then and later. A file here can also carry a web change of the port's own: code of the forks that a
 # page can't compile.
 #
-# merged from N64Recomp-browser 3d6b28f46c5342682d8dfb388c15edaa60ac1d78
+# merged from N64Recomp-browser 2fae0e954c3b54afdd2293d6f2210419e7b9b5f3
 #
 # rt64: the port's frame pairing for interpolation stays, so RT64_GAME_FRAME_WORKLOADS is off (rt64_workload_queue.h
 # refuses it): the pairing needs each workload to stay a game frame of its own. Its three target sets stay too, with the
