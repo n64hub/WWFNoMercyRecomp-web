@@ -7,7 +7,7 @@
 # is left out, then and later. A file here can also carry a web change of the port's own: code of the forks that a
 # page can't compile.
 #
-# merged from N64Recomp-browser 2fae0e954c3b54afdd2293d6f2210419e7b9b5f3
+# merged from N64Recomp-browser 6a991659354e3fad9eec75a00908fedf89a5038e
 #
 # rt64: the port's frame pairing for interpolation stays, so RT64_GAME_FRAME_WORKLOADS is off (rt64_workload_queue.h
 # refuses it): the pairing needs each workload to stay a game frame of its own. Its three target sets stay too, with the
@@ -21,7 +21,9 @@
 # de-lined copy too. Ray tracing, the CRT filter and HDR are D3D12's or librashader's and do nothing on a page. As the
 # port's own web change, the texture cache reads its replacement database as chars (rt64_texture_cache.cpp): the port's
 # json, 3.9, reads bytes through a std::char_traits Emscripten's libc++ lacks, and the CRT filter's Vulkan chain is left
-# out (rt64_crt_filter.cpp), which would link Vulkan's loader into the page.
+# out (rt64_crt_filter.cpp), which would link Vulkan's loader into the page. The port's SD TV is always 4:3
+# (rt64_vi_renderer.cpp) and its aspect ratio source the TV's 4:3 (rt64_workload_queue.cpp), so the web's pixel aspect
+# (VI::pixelAspect(), the shape of a framebuffer's pixels on the TV) changes neither: it is passed on and divides nothing.
 # rt64_application.cpp: a device replaced keeps its window, around the port's setup logging.
 # plume: the web's WebGPU backend and device-thread wrapper gain the port's getColorSpace() (a canvas is sRGB) and pass
 # on a queue's setName(). The examples are the port's: a page doesn't build them. So is D3D12 (plume_d3d12.cpp and .h),
@@ -59,6 +61,7 @@ rt64 src/render/rt64_crt_filter.cpp
 rt64 src/render/rt64_render_target.h
 rt64 src/render/rt64_shader_library.cpp
 rt64 src/render/rt64_texture_cache.cpp
+rt64 src/render/rt64_vi_renderer.cpp
 rt64 src/shaders/RasterPS.hlsl
 rt64 src/shaders/TextureSampler.hlsli
 plume plume_render_interface.h
