@@ -7,7 +7,7 @@
 # is left out, then and later. A file here can also carry a web change of the port's own: code of the forks that a
 # page can't compile.
 #
-# merged from N64Recomp-browser d428740d51d376f1e909dc6ca1fe78653deae75b
+# merged from N64Recomp-browser 3e7f75519f5f601968a4914518401c93f59ae7ec
 #
 # rt64: the port's frame pairing for interpolation stays, so RT64_GAME_FRAME_WORKLOADS is off (rt64_workload_queue.h
 # refuses it): the pairing needs each workload to stay a game frame of its own. Its three target sets stay too, with the
@@ -29,7 +29,9 @@
 # only those with a camera-independent matrix, the kind the port pairs, and are blended in a match from their moved
 # matrix to their drawn one componentwise (rt64_transform_processor.cpp), as the port's pairs that hold still are drawn
 # there, never decomposed: their rigid body stays an unpaired one's, which the next frame's pair, decomposed from
-# camera-independent matrices, starts from.
+# camera-independent matrices, starts from. Where too few pairs agree on a step, the step found by place is looked for
+# over those transforms alone, from and onto camera-independent ones of each frame, and leaves their rigid body an
+# unpaired one's too, where the web gives each moved transform one of its own already moving at the step.
 # plume: the web's WebGPU backend and device-thread wrapper gain the port's getColorSpace() (a canvas is sRGB) and pass
 # on a queue's setName(). The examples are the port's: a page doesn't build them. So is D3D12 (plume_d3d12.cpp and .h),
 # which a page doesn't build either: the port's own answer to a removed device (scratch memory from map(), then quitting)

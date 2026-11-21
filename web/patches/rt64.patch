@@ -1,8 +1,8 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 4aedc11..f90c1bc 100644
+index 4aedc11..a275315 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -11,7 +11,32 @@ endif()
+@@ -11,7 +11,34 @@ endif()
  option(RT64_STATIC "Build RT64 as a static library" OFF)
  
  
@@ -25,6 +25,8 @@ index 4aedc11..f90c1bc 100644
 +option(RT64_EXACT_PRIM_DEPTH "Draw a G_ZS_PRIM triangle through a perspective or orthographic projection at exactly its prim depth, by a viewport depth range of no height, not at the vertex shader's z = primDepth * w, which the perspective divide leaves an ulp off on some vertices, so that under a strict depth test only the first of its triangles to cover a pixel draws there, as on the console (always on with Emscripten)" OFF)
 +option(RT64_SKIP_CAMERA_CUTS "Pair nothing across a camera the game gives no matrix group of its own that cut to another shot between two game frames (it turned more than 45 degrees, or its eye jumped more than 8 near plane distances and 4 times its last step, an eye the game leaves at the origin read from what the world matrices moved by), nor anything its scene draws, so the frames between draw the new shot as it is, not the world halfway between two places (always on with Emscripten)" OFF)
 +option(RT64_MOVE_UNPAIRED_WITH_CAMERA "Draw a transform the game frame before has no pair for as holding still in the world in the frames between, moved back from its matrix by the step that most of its scene's paired transforms agree on, so that in a game that puts its camera in each object's matrix an object it draws with another call as it nears, or that comes into view, moves with its neighbours instead of standing at its own place in the frames between, with the gaps between them open; nothing is moved where that step is more than 4 times the frame before's, a cut too small for RT64_SKIP_CAMERA_CUTS (always on with Emscripten)" OFF)
++option(RT64_DRAW_LINES "Draw the line microcode's lines (G_LINE3D, L3DEX2's and F3DEX2's opcode for it), which RT64 leaves out, as quads 1.5 pixels wide and half a pixel more for each step of their width between their ends' places on the screen, as the RSP draws them: Mario Party 3's fishing line in Hand Line and Sinker and the rings round M.P.I.Q.'s mushroom stalks. Off unless a game turns it on, on the desktop and with Emscripten alike" OFF)
++option(RT64_FILTER_BY_ALPHA "Filter a texture's colour weighted by its texels' alpha where the alpha decides the coverage or the alpha compare (CVG_X_ALPHA, G_AC_THRESHOLD, G_AC_DITHER), so a sprite's edge takes no colour from the texels around it that it leaves out (a palette's transparent green), which a picture drawn at a higher resolution than the console's, and RT64's coverage without the console's edge blend, show as a line round it. Off unless a game turns it on, on the desktop and with Emscripten alike" OFF)
 +option(RT64_SKIP_PLACE_SWAPS "Never pair a transform with one of the game frame before at another place when both frames drew something at both places, nor one whose vertices are others than its pair's when that one's held still or had just come, so that a model the game draws at many places, in another order or with another call each frame, is not interpolated from one of its places to another, nor a block of a level that came into view from one that left it (always on with Emscripten)" OFF)
 +option(RT64_INTERPOLATE_RECT_SCROLLS "Pair a texrect with one of the game frame before that drew the same place with the same textures, and when its texture only scrolled inside it, by less than a quarter of what it spans, slide the texture there in the frames between, as a scroll on a 3D draw is; one with none there pairs with the nearest that drew the same textures at the same size less than its longer side away, and is drawn between where it stood and where it is, so that a background the game draws as 2D strips, scrolls as the camera turns and moves as it pitches (a horizon panorama) moves on every frame with the world in front of it, not a step a game frame (always on with Emscripten)" OFF)
 +option(RT64_INTERPOLATE_SCREEN_VERTICES "Draw a screen position a game writes into a vertex itself (G_MODIFYVTX's XYSCREEN) between the game frame before's and its own in the frames between, paired in the order the game wrote them through each projection, so that a game that projects its own geometry (a pin's flagstick) moves on every frame with the world drawn around it, not a step a game frame (always on with Emscripten)" OFF)
@@ -35,7 +37,7 @@ index 4aedc11..f90c1bc 100644
  
  if (NOT ${RT64_STATIC})
      set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-@@ -64,13 +89,37 @@ else()
+@@ -64,13 +91,37 @@ else()
      endif()
  endif()
  
@@ -74,7 +76,7 @@ index 4aedc11..f90c1bc 100644
  add_subdirectory(src/contrib/zstd/build/cmake)
  
  if (CMAKE_SYSTEM_NAME MATCHES "Linux" AND RT64_SDL_WINDOW_VULKAN)
-@@ -103,6 +152,21 @@ set(ANDROID_ABI arm64-v8a)
+@@ -103,6 +154,25 @@ set(ANDROID_ABI arm64-v8a)
  
  # For DXC
  set (DXC_COMMON_OPTS "-I${PROJECT_SOURCE_DIR}/src")
@@ -93,10 +95,14 @@ index 4aedc11..f90c1bc 100644
 +if (RT64_FLIPPED_RECT_HIGH_RES OR RT64_WGSL)
 +    list(APPEND DXC_COMMON_OPTS "-D" "FLIPPED_RECT_HIGH_RES")
 +endif()
++# A texture's colour filtered by its texels' alpha where the alpha decides the coverage (TextureSampler.hlsli).
++if (RT64_FILTER_BY_ALPHA)
++    list(APPEND DXC_COMMON_OPTS "-D" "FILTER_BY_ALPHA")
++endif()
  set (DXC_DXIL_OPTS "-Wno-ignored-attributes")
  set (DXC_SPV_OPTS "-spirv" "-fspv-target-env=vulkan1.0" "-fvk-use-dx-layout")
  set (DXC_LB_OPTS "${DXC_COMMON_OPTS}" "-D" "LIBRARY" "-T" "lib_6_3")
-@@ -116,6 +180,15 @@ set (DXC_RT_OPTS "${DXC_COMMON_OPTS}" "-D" "RT_SHADER" "-T" "lib_6_3" "-fspv-tar
+@@ -116,6 +186,15 @@ set (DXC_RT_OPTS "${DXC_COMMON_OPTS}" "-D" "RT_SHADER" "-T" "lib_6_3" "-fspv-tar
  # includes to a depfile (DXC's -MF lists them without compiling), then compiles. Before, only the .hlsl was a
  # dependency, so a change to a shared struct (WcwRtParams) left the shaders that didn't change with the old layout.
  
@@ -112,7 +118,7 @@ index 4aedc11..f90c1bc 100644
  function(build_shader_spirv_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
      add_custom_command(OUTPUT ${OUTNAME}.spv
          COMMAND ${DXC} ${DXC_SPV_OPTS} ${ARGN} ${FILENAME} /Fo ${OUTNAME}.spv -MF ${OUTNAME}.spv.d
-@@ -129,6 +202,18 @@ function(build_shader_spirv_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
+@@ -129,6 +208,18 @@ function(build_shader_spirv_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
      target_sources(${TARGETOBJ} PRIVATE ${OUTNAME}.spirv.c)
  endfunction()
  
@@ -131,7 +137,7 @@ index 4aedc11..f90c1bc 100644
  function(build_shader_dxil_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
      add_custom_command(OUTPUT ${OUTNAME}.dxil
          COMMAND ${DXC} ${DXC_DXIL_OPTS} ${ARGN} ${FILENAME} /Fo ${OUTNAME}.dxil -MF ${OUTNAME}.dxil.d
-@@ -179,6 +264,10 @@ function(build_shader TARGETOBJ SHADERNAME OPTIONS)
+@@ -179,6 +270,10 @@ function(build_shader TARGETOBJ SHADERNAME OPTIONS)
      cmake_path(GET OUTNAME STEM TARGET_NAME)
      cmake_path(GET OUTNAME PARENT_PATH OUTPUT_DIR)
      file(MAKE_DIRECTORY ${OUTPUT_DIR})
@@ -142,7 +148,7 @@ index 4aedc11..f90c1bc 100644
      # Compile DXIL shader binaries if building on Windows
      if (WIN32)
          build_shader_dxil_impl(${TARGETOBJ} ${FILENAME} ${TARGET_NAME} ${OUTNAME} ${OPTIONS} ${EXTRA_ARGS})
-@@ -224,6 +313,10 @@ function(build_shader_spirv TARGETOBJ SHADERNAME OPTIONS)
+@@ -224,6 +319,10 @@ function(build_shader_spirv TARGETOBJ SHADERNAME OPTIONS)
      cmake_path(GET OUTNAME STEM TARGET_NAME)
      cmake_path(GET OUTNAME PARENT_PATH OUTPUT_DIR)
      file(MAKE_DIRECTORY ${OUTPUT_DIR})
@@ -153,7 +159,7 @@ index 4aedc11..f90c1bc 100644
      build_shader_spirv_impl(${TARGETOBJ} ${FILENAME} ${TARGET_NAME} ${OUTNAME} ${OPTIONS} ${EXTRA_ARGS})
  endfunction()
  
-@@ -298,6 +391,11 @@ if (WIN32)
+@@ -298,6 +397,11 @@ if (WIN32)
      set(SDL2_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/include")
      set(SDL2_LIBRARIES "SDL2" "SDL2main")
      link_directories("${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64")
@@ -165,7 +171,7 @@ index 4aedc11..f90c1bc 100644
  else()
      find_package(SDL2 REQUIRED)
  endif()
-@@ -362,6 +460,7 @@ set (SOURCES
+@@ -362,6 +466,7 @@ set (SOURCES
      "${PROJECT_SOURCE_DIR}/src/hle/rt64_color_converter.cpp"
      "${PROJECT_SOURCE_DIR}/src/hle/rt64_command_warning.cpp"
      "${PROJECT_SOURCE_DIR}/src/hle/rt64_draw_call.cpp"
@@ -173,7 +179,7 @@ index 4aedc11..f90c1bc 100644
      "${PROJECT_SOURCE_DIR}/src/hle/rt64_framebuffer.cpp"
      "${PROJECT_SOURCE_DIR}/src/hle/rt64_framebuffer_changes.cpp"
      "${PROJECT_SOURCE_DIR}/src/hle/rt64_framebuffer_manager.cpp"
-@@ -459,9 +558,88 @@ endif()
+@@ -459,9 +564,91 @@ endif()
  set_target_properties(rt64 PROPERTIES OUTPUT_NAME "rt64")
  set_target_properties(rt64 PROPERTIES PREFIX "")
  
@@ -235,6 +241,9 @@ index 4aedc11..f90c1bc 100644
 +if (RT64_MOVE_UNPAIRED_WITH_CAMERA OR RT64_WGSL)
 +    target_compile_definitions(rt64 PRIVATE RT64_MOVE_UNPAIRED_WITH_CAMERA=1)
 +endif()
++if (RT64_DRAW_LINES)
++    target_compile_definitions(rt64 PRIVATE RT64_DRAW_LINES=1)
++endif()
 +if (RT64_INTERPOLATE_RECT_SCROLLS OR RT64_WGSL)
 +    target_compile_definitions(rt64 PRIVATE RT64_INTERPOLATE_RECT_SCROLLS=1)
 +endif()
@@ -263,7 +272,7 @@ index 4aedc11..f90c1bc 100644
  target_link_libraries(rt64 libzstd_static)
  target_link_libraries(rt64 plume)
  
-@@ -563,9 +741,141 @@ build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/
+@@ -563,9 +750,141 @@ build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/
  build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/RasterPSSpecConstantMS.hlsl" "-D SPEC_CONSTANT_RENDER_PARAMS" "-D MULTISAMPLING")
  build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/RasterPSSpecConstantFlat.hlsl" "-D SPEC_CONSTANT_RENDER_PARAMS" "-D VERTEX_FLAT_COLOR")
  build_pixel_shader_spec_constants(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/RasterPSSpecConstantFlatMS.hlsl" "-D SPEC_CONSTANT_RENDER_PARAMS" "-D VERTEX_FLAT_COLOR" "-D MULTISAMPLING")
@@ -405,7 +414,7 @@ index 4aedc11..f90c1bc 100644
  build_compute_shader(rt64 "src/shaders/FbChangesClearCS.hlsl")
  build_pixel_shader(  rt64 "src/shaders/FbChangesDrawColorPS.hlsl")
  build_pixel_shader(  rt64 "src/shaders/FbChangesDrawDepthPS.hlsl")
-@@ -594,7 +904,10 @@ if (WIN32)
+@@ -594,7 +913,10 @@ if (WIN32)
      build_shader_dxil(rt64 "src/shaders/WcwRtTraceCS.hlsl" "${DXC_COMMON_OPTS};-E;CSMain;-T;cs_6_5")
      build_shader_dxil(rt64 "src/shaders/WcwRtResolveCS.hlsl" "${DXC_COMMON_OPTS};-E;CSMain;-T;cs_6_5")
  endif()
@@ -1456,7 +1465,7 @@ index 04ffab7..7c1da07 100644
          void discardRegionsTMEM(uint32_t tmemStart, uint32_t tmemWords, uint32_t tmemMask);
          void storeRAM(FramebufferStorage &fbStorage, const uint8_t *RDRAM, uint32_t fbPairIndex);
 diff --git a/src/hle/rt64_game_frame.cpp b/src/hle/rt64_game_frame.cpp
-index f269442..37d30c4 100644
+index f269442..5124321 100644
 --- a/src/hle/rt64_game_frame.cpp
 +++ b/src/hle/rt64_game_frame.cpp
 @@ -2,6 +2,9 @@
@@ -1483,7 +1492,7 @@ index f269442..37d30c4 100644
          if (!areFramebufferPairsCompatible(workloadQueue, { firstProj.workloadIndex, firstProj.fbPairIndex }, { proj.workloadIndex, proj.fbPairIndex })) {
              return false;
          }
-@@ -174,89 +184,1281 @@ namespace RT64 {
+@@ -174,6 +184,55 @@ namespace RT64 {
          return (lhs.first < rhs.first) || ((lhs.first == rhs.first) && lhs.second < rhs.second);
      }
  
@@ -1539,44 +1548,21 @@ index f269442..37d30c4 100644
      struct MatchCandidate {
          uint32_t curIndex = 0;
          uint32_t prevIndex = 0;
-         float difference = FLT_MAX;
- 
--        MatchCandidate(uint32_t curIndex, uint32_t prevIndex, float difference) {
--            this->curIndex = curIndex;
--            this->prevIndex = prevIndex;
--            this->difference = difference;
--        }
--    };
-+        MatchCandidate(uint32_t curIndex, uint32_t prevIndex, float difference) {
-+            this->curIndex = curIndex;
-+            this->prevIndex = prevIndex;
-+            this->difference = difference;
-+        }
-+    };
-+
-+    bool operator<(const MatchCandidate &lhs, const MatchCandidate &rhs) {
-+        return lhs.difference < rhs.difference;
-+    }
-+
-+    struct TransformMatchResult {
-+        float positionDifference = FLT_MAX;
-+        float orientationDifference = FLT_MAX;
-+        float screenSpaceDifference = FLT_MAX;
+@@ -194,6 +253,7 @@ namespace RT64 {
+         float positionDifference = FLT_MAX;
+         float orientationDifference = FLT_MAX;
+         float screenSpaceDifference = FLT_MAX;
 +        float scaleDifference = FLT_MAX;
-+        bool valid = false;
-+
-+        float computeDifference() const {
-+            if (!valid) {
-+                return FLT_MAX;
-+            }
-+
-+            float totalDiff = 0.0f;
-+
-+            const float PositionDiffScale = 1.0f;
-+            if (positionDifference < FLT_MAX) {
-+                totalDiff += positionDifference * PositionDiffScale;
-+            }
-+
+         bool valid = false;
+ 
+         float computeDifference() const {
+@@ -208,55 +268,1286 @@ namespace RT64 {
+                 totalDiff += positionDifference * PositionDiffScale;
+             }
+ 
+-            const float OrientationDiffScale = 1.0f;
+-            if (orientationDifference < FLT_MAX) {
+-                totalDiff += orientationDifference * OrientationDiffScale;
 +            const float OrientationDiffScale = 1.0f;
 +            if (orientationDifference < FLT_MAX) {
 +                totalDiff += orientationDifference * OrientationDiffScale;
@@ -2061,6 +2047,11 @@ index f269442..37d30c4 100644
 +    // 64 columns as high as the screen) paired each column with the one that had its alpha a game frame before, up to
 +    // the screen's height away, and the frames between slid the columns from there, a strip of the picture uncovered
 +    // where the ramp met the black.
++    // A textured rect whose texture jumped as it changed size or moved half of itself along its row, where the frame
++    // before drew other rects with its look (the glyphs of a font packed into one texture page), is another picture there,
++    // drawn where the game put it, unless the jump is a cut at the scissor's edge (below). So is one that moved along its
++    // row onto the place of a rect nothing paired with while another took the place it left, a line of glyphs whose values
++    // changed.
 +    static void matchRectScrolls(const Workload &curWorkload, const Workload &prevWorkload, GameFrameMap::WorkloadMap &workloadMap, bool &tileInterpolationUsed, bool untextured) {
 +        struct RectCall {
 +            const DrawCall *call;
@@ -2213,6 +2204,21 @@ index f269442..37d30c4 100644
 +            const bool ulOnto = (aUl <= (vertical ? ca.scissorRect.uly : ca.scissorRect.ulx)) && (ulMove > 0);
 +            const bool lrOnto = (aLr >= (vertical ? ca.scissorRect.lry : ca.scissorRect.lrx)) && (lrMove < 0);
 +            return (ulOnto == lrOnto) ? 0 : (ulOnto ? 1 : 2);
++        };
++
++        // Whether the edge the game holds one way (heldEdge) lies on the scissor's, within a pixel: where it cuts a rect
++        // at the screen's edge, as a panorama or a sliding menu goes on past it.
++        auto heldAtScissor = [&](const DrawCall &ca, const DrawCall &cb, bool vertical) {
++            const int held = heldEdge(ca, cb, vertical);
++            if (held == 1) {
++                return (vertical ? ca.gameRect.uly : ca.gameRect.ulx) <= ((vertical ? ca.scissorRect.uly : ca.scissorRect.ulx) + 4);
++            }
++
++            if (held == 2) {
++                return (vertical ? ca.gameRect.lry : ca.gameRect.lrx) >= ((vertical ? ca.scissorRect.lry : ca.scissorRect.lrx) - 4);
++            }
++
++            return false;
 +        };
 +
 +        // A rect the game cuts at an edge it holds (a strip of a panorama that crosses the top of the picture, held at
@@ -2571,10 +2577,7 @@ index f269442..37d30c4 100644
 +            if (!together) {
 +                continue;
 +            }
- 
--    bool operator<(const MatchCandidate &lhs, const MatchCandidate &rhs) {
--        return lhs.difference < rhs.difference;
--    }
++
 +            // The texels the rect spans in each direction: its size in pixels times its texels a pixel.
 +            const float spanS = (float(curCall.rect.lrx - curCall.rect.ulx) / 4.0f) * (fabsf(float(curCall.rectDsdx)) / 1024.0f);
 +            const float spanT = (float(curCall.rect.lry - curCall.rect.uly) / 4.0f) * (fabsf(float(curCall.rectDtdy)) / 1024.0f);
@@ -2594,21 +2597,82 @@ index f269442..37d30c4 100644
 +                    (cutT || (stepT[t] == 0.0f) || (fabsf(stepT[t]) < (spanT * tile.shiftt / 4.0f)));
 +                scrolled = scrolled || (stepS[t] != 0.0f) || (stepT[t] != 0.0f);
 +            }
- 
--    struct TransformMatchResult {
--        float positionDifference = FLT_MAX;
--        float orientationDifference = FLT_MAX;
--        float screenSpaceDifference = FLT_MAX;
--        bool valid = false;
++
 +            const bool moved = (prevCall.rect.ulx != curCall.rect.ulx) || (prevCall.rect.uly != curCall.rect.uly) ||
 +                (prevCall.rect.lrx != curCall.rect.lrx) || (prevCall.rect.lry != curCall.rect.lry);
 +            if (!moved && (!slides || !scrolled)) {
 +                continue;
 +            }
- 
--        float computeDifference() const {
--            if (!valid) {
--                return FLT_MAX;
++
++            // A rect whose texture jumped (its texcoords moved a quarter of what it spans or more, not a scroll inside
++            // it), where the frame before drew other rects with its look, is another picture of a texture they share,
++            // not this one moved, cut or resized: a glyph of a font the game packs into one texture page with the rest
++            // and draws by its texcoords (Excitebike 64's, its race's times and score one 64x64 page). As the race's
++            // timer counted, a digit paired with the frame before's digit in its place, a glyph of another size, or
++            // with one a cell along the line, and the frames between drew it stretched between the two sizes, slid
++            // across its neighbours, or cut as a panorama's strip is (cutAt), the page's texels sliding through it and
++            // the glyphs beside it in the page showing as columns. A step taken on an axis the rect is cut at the
++            // scissor's edge it holds stays a cut: a strip of a texture several rects share, sliding off the screen.
++            // So does one whose top edge moved, or of its size that moved along its row less than half of it: a sprite
++            // among others that animates by stepping its texcoords across a strip of its frames as it drifts (Mario
++            // Golf's sparkles in its credits), where a line of glyphs keeps its row.
++            bool jumped = false;
++            for (uint32_t t = 0; (t < curCall.tileCount) && !jumped && !untextured; t++) {
++                const interop::RDPTile &tile = curData.rdpTiles[curCall.tileIndex + t];
++                const float jumpS = fabsf(insidePeriod(ds * tile.shifts, tile.masks, tile.cms));
++                const float jumpT = fabsf(insidePeriod(dt * tile.shiftt, tile.maskt, tile.cmt));
++                jumped = (!(cutS && heldAtScissor(curCall, prevCall, false)) && (jumpS > 0.0f) && (jumpS >= (spanS * tile.shifts / 4.0f))) ||
++                    (!(cutT && heldAtScissor(curCall, prevCall, true)) && (jumpT > 0.0f) && (jumpT >= (spanT * tile.shiftt / 4.0f)));
++            }
++
++            const bool movedHalf = (abs(prevCall.gameRect.ulx - curCall.gameRect.ulx) * 2 >= (curCall.gameRect.lrx - curCall.gameRect.ulx));
++            const bool another = jumped && (prevCall.gameRect.uly == curCall.gameRect.uly) && (!sameSize(curCall, prevCall) || movedHalf);
++            bool shared = false;
++            for (size_t k = 0; (k < prevRects.size()) && another && !shared; k++) {
++                shared = (k != found) && sameLook(curCall, *prevRects[k].call);
++            }
++
++            if (shared) {
++                continue;
++            }
++
++            // A textured rect that moved along its row onto most of the place of a rect of that row the frame before
++            // drew at its scale that nothing of this frame paired with, while another rect of this frame at that scale
++            // took most of the place it left, in its row too, is another picture in each place: a line of glyphs whose
++            // values changed, not a glyph moved along it. Excitebike 64 draws its race timer's glyphs page by page, so
++            // as it went from 59.01 to 58.98 the tenths' 9 paired with the seconds' 9 as its own, a glyph and the point
++            // to its left, and the frames between slid it across them. A line that slides pairs the glyphs in the
++            // places its glyphs move onto, all used.
++            auto sameScale = [](const DrawCall &a, const DrawCall &b) {
++                return (a.rectDsdx == b.rectDsdx) && (a.rectDtdy == b.rectDtdy);
++            };
++
++            auto mostOf = [](const DrawCall &a, const DrawCall &b) {
++                const int64_t w = std::min(a.gameRect.lrx, b.gameRect.lrx) - std::max(a.gameRect.ulx, b.gameRect.ulx);
++                const int64_t h = std::min(a.gameRect.lry, b.gameRect.lry) - std::max(a.gameRect.uly, b.gameRect.uly);
++                const int64_t area = int64_t(a.gameRect.lrx - a.gameRect.ulx) * int64_t(a.gameRect.lry - a.gameRect.uly);
++                return (w > 0) && (h > 0) && ((w * h * 2) > area);
++            };
++
++            bool replaced = false;
++            if (moved && !untextured && (prevCall.gameRect.uly == curCall.gameRect.uly)) {
++                bool placeTaken = false;
++                for (size_t k = 0; (k < prevRects.size()) && !placeTaken; k++) {
++                    const DrawCall &placeCall = *prevRects[k].call;
++                    placeTaken = (k != found) && !prevUsed[k] && (placeCall.gameRect.uly == curCall.gameRect.uly) && sameScale(curCall, placeCall) &&
++                        mostOf(curCall, placeCall);
++                }
++
++                for (size_t c = 0; (c < curRects.size()) && placeTaken && !replaced; c++) {
++                    const DrawCall &leftCall = *curRects[c].call;
++                    replaced = (c != r) && (leftCall.gameRect.uly == prevCall.gameRect.uly) && sameScale(leftCall, prevCall) && mostOf(prevCall, leftCall);
++                }
++            }
++
++            if (replaced) {
++                continue;
++            }
++
 +            // Whether its texture slides or jumps: a sprite the game moves and animates by stepping its texcoords
 +            // across a strip of its frames jumps a frame at a time, and moves on every game frame.
 +            if (moved) {
@@ -2622,9 +2686,8 @@ index f269442..37d30c4 100644
 +                workloadMap.rectMoves[curCall.callIndex] = hlslpp::float4(
 +                    (heldS == 1) ? 0.0f : float(prevCall.rect.ulx - curCall.rect.ulx), (heldT == 1) ? 0.0f : float(prevCall.rect.uly - curCall.rect.uly),
 +                    (heldS == 2) ? 0.0f : float(prevCall.rect.lrx - curCall.rect.lrx), (heldT == 2) ? 0.0f : float(prevCall.rect.lry - curCall.rect.lry)) / 4.0f;
-             }
- 
--            float totalDiff = 0.0f;
++            }
++
 +            // A rect cut at an edge it holds that changed size is drawn wider or narrower in the frames between, its
 +            // texcoords at its corners as this frame has them, which stretches its texture across it: Mario Golf
 +            // opens Course Select by moving Play Modes' halves out 12 pixels a side each game frame, each cut by the
@@ -2649,10 +2712,7 @@ index f269442..37d30c4 100644
 +                if (!cut || (curLr <= curUl) || (ulMove == lrMove)) {
 +                    return false;
 +                }
- 
--            const float PositionDiffScale = 1.0f;
--            if (positionDifference < FLT_MAX) {
--                totalDiff += positionDifference * PositionDiffScale;
++
 +                const float width = float(curLr - curUl) / 4.0f;
 +                const float dU = float(ulMove) / 4.0f;
 +                const float dW = float(lrMove - ulMove) / 4.0f;
@@ -2670,11 +2730,8 @@ index f269442..37d30c4 100644
 +            const bool stepped = slides && scrolled;
 +            if (!stepped && !resizedS && !resizedT) {
 +                continue;
-             }
- 
--            const float OrientationDiffScale = 1.0f;
--            if (orientationDifference < FLT_MAX) {
--                totalDiff += orientationDifference * OrientationDiffScale;
++            }
++
 +            // A tile's corners are in quarter texels, and the shader subtracts them from the texcoords it scaled.
 +            for (uint32_t t = 0; t < curCall.tileCount; t++) {
 +                const uint32_t tileIndex = curCall.tileIndex + t;
@@ -2823,7 +2880,7 @@ index f269442..37d30c4 100644
  
      void GameFrame::match(RenderWorker *worker, WorkloadQueue &workloadQueue, const GameFrame &prevFrame, BufferUploader *velocityUploader, bool &velocityUploaderUsed, bool &tileInterpolationUsed, bool &lookAtInterpolationUsed) {
          tileInterpolationUsed = false;
-@@ -270,17 +1472,49 @@ namespace RT64 {
+@@ -270,17 +1561,50 @@ namespace RT64 {
          thread_local std::unordered_map<uint32_t, ModifiedBuffers> workloadsModified;
          workloadsModified.clear();
  
@@ -2873,13 +2930,14 @@ index f269442..37d30c4 100644
 +            GameFrameMap::WorkloadMap &workloadMap = frameMap.workloads[curWorkloadIndex];
 +            workloadMap.prevWorkloadIndex = drawnPair.second;
              workloadMap.mapped = true;
++            workloadMap.cameraCut = false;
  
 -            Workload &curWorkload = workloadQueue.workloads[workloads[w]];
 +            Workload &curWorkload = workloadQueue.workloads[curWorkloadIndex];
              const Workload &prevWorkload = workloadQueue.workloads[workloadMap.prevWorkloadIndex];
              workloadMap.viewProjections.clear();
              workloadMap.viewProjections.resize(curWorkload.drawData.viewProjTransforms.size());
-@@ -302,7 +1536,7 @@ namespace RT64 {
+@@ -302,7 +1626,7 @@ namespace RT64 {
              wcwHfrIds.fetch_add(uint32_t(curWorkload.transformIdMap.size()), std::memory_order_relaxed);
  
              // Retrieve the matching maps for the current and previous workload.
@@ -2888,7 +2946,7 @@ index f269442..37d30c4 100644
              const GameFrameMap::WorkloadMap *prevWorkloadMap = nullptr;
              if (prevFrame.matched && prevFrame.frameMap.workloads[workloadMap.prevWorkloadIndex].mapped) {
                  prevWorkloadMap = &prevFrame.frameMap.workloads[workloadMap.prevWorkloadIndex];
-@@ -345,7 +1579,7 @@ namespace RT64 {
+@@ -345,7 +1669,7 @@ namespace RT64 {
              }
  
              if (!modifiedBuffers.empty()) {
@@ -2897,7 +2955,7 @@ index f269442..37d30c4 100644
              }
  
              // Any transforms tagged with the empty ID will be instantly marked as used and skipped.
-@@ -372,6 +1606,14 @@ namespace RT64 {
+@@ -372,6 +1696,14 @@ namespace RT64 {
                  const hlslpp::float4x4 &curProjTransform = curWorkload.drawData.projTransforms[curProj.transformsIndex];
                  for (uint32_t j = 0; j < prevScenes.size(); j++) {
                      const GameIndices::Projection prevFirstProj = prevScenes[j].projections[0];
@@ -2912,7 +2970,7 @@ index f269442..37d30c4 100644
                      const Workload &prevWorkload = workloadQueue.workloads[prevFirstProj.workloadIndex];
                      const FramebufferPair &prevFbPair = prevWorkload.fbPairs[prevFirstProj.fbPairIndex];
                      const Projection &prevProj = prevFbPair.projections[prevFirstProj.projectionIndex];
-@@ -385,6 +1627,40 @@ namespace RT64 {
+@@ -385,6 +1717,40 @@ namespace RT64 {
              prevScenesMatched.clear();
              curScenesMatched.resize(curScenes.size());
              prevScenesMatched.resize(prevScenes.size());
@@ -2953,15 +3011,20 @@ index f269442..37d30c4 100644
              std::stable_sort(matchCandidates.begin(), matchCandidates.end());
              for (const MatchCandidate &candidate : matchCandidates) {
                  if (curScenesMatched[candidate.curIndex]) {
-@@ -446,6 +1722,15 @@ namespace RT64 {
+@@ -446,6 +1812,20 @@ namespace RT64 {
          else {
              velocityUploaderUsed = false;
          }
 +
 +        // The rects pair last: none of their tiles is one matchScene() maps, and tileInterpolationUsed is read once
-+        // match() returns.
++        // match() returns. A workload whose camera cut to another shot (RT64_SKIP_CAMERA_CUTS) pairs none: its rects
++        // are drawn where the game put them, as its scene is.
 +#if RT64_INTERPOLATE_RECT_SCROLLS
 +        for (const std::pair<uint32_t, uint32_t> &drawnPair : drawnPairs) {
++            if (frameMap.workloads[drawnPair.first].cameraCut) {
++                continue;
++            }
++
 +            matchRectScrolls(workloadQueue.workloads[drawnPair.first], workloadQueue.workloads[drawnPair.second], frameMap.workloads[drawnPair.first], tileInterpolationUsed, false);
 +            matchRectScrolls(workloadQueue.workloads[drawnPair.first], workloadQueue.workloads[drawnPair.second], frameMap.workloads[drawnPair.first], tileInterpolationUsed, true);
 +        }
@@ -2969,7 +3032,7 @@ index f269442..37d30c4 100644
      }
  
      // [wcw fix] A projection is stale when its workload slot was recycled (submissionFrame) or its
-@@ -478,8 +1763,10 @@ namespace RT64 {
+@@ -478,8 +1858,10 @@ namespace RT64 {
              return;
          }
  
@@ -2982,7 +3045,7 @@ index f269442..37d30c4 100644
          curCallHashMap.clear();
          prevCallHashMap.clear();
  
-@@ -498,6 +1785,12 @@ namespace RT64 {
+@@ -498,6 +1880,12 @@ namespace RT64 {
              firstPrevWorkloadMap = &prevFrame.frameMap.workloads[firstPrevProjIndices.workloadIndex];
          }
  
@@ -2995,7 +3058,7 @@ index f269442..37d30c4 100644
          // Build a multimap with all potential compatibilities between draw calls in the projections.
          uint32_t mappedViewProjIndex = UINT32_MAX;
          for (uint32_t p = 0; p < curScene.projections.size(); p++) {
-@@ -554,6 +1847,39 @@ namespace RT64 {
+@@ -554,6 +1942,40 @@ namespace RT64 {
                  }
                  else {
                      viewProjMap.mapped = (curProjGroup.matrixId == G_EX_ID_AUTO);
@@ -3019,6 +3082,7 @@ index f269442..37d30c4 100644
 +                            if (isCameraCut(move.turnCosine, move.step, prevEyeStep)) {
 +                                viewProjMap.mapped = false;
 +                                viewProjMap.rigidBody = RigidBody();
++                                firstCurWorkloadMap.cameraCut = true;
 +                                return;
 +                            }
 +
@@ -3035,7 +3099,7 @@ index f269442..37d30c4 100644
                  }
  
                  if (viewProjMap.mapped) {
-@@ -585,69 +1911,163 @@ namespace RT64 {
+@@ -585,69 +2007,163 @@ namespace RT64 {
              buildCallHashMap(p, prevWorkload, prevProj, prevCallHashMap);
          }
  
@@ -3245,7 +3309,7 @@ index f269442..37d30c4 100644
          }
  
          // Compute all the differences between transforms and insert them into a vector that will be sorted according to the differences.
-@@ -668,6 +2088,71 @@ namespace RT64 {
+@@ -668,6 +2184,72 @@ namespace RT64 {
              }
          }
  
@@ -3264,6 +3328,7 @@ index f269442..37d30c4 100644
 +                    curViewProjMap.rigidBody = RigidBody();
 +                }
 +
++                firstCurWorkloadMap.cameraCut = true;
 +                return;
 +            }
 +        }
@@ -3317,7 +3382,7 @@ index f269442..37d30c4 100644
          ModifiedBuffers modifiedBuffers;
          std::stable_sort(matchCandidates.begin(), matchCandidates.end());
          for (const MatchCandidate candidate : matchCandidates) {
-@@ -682,6 +2167,133 @@ namespace RT64 {
+@@ -682,6 +2264,242 @@ namespace RT64 {
              matchTransform(firstCurWorkload, firstPrevWorkload, firstCurWorkloadMap, firstPrevWorkloadMap, candidate.curIndex, candidate.prevIndex, modifiedBuffers);
          }
  
@@ -3333,7 +3398,8 @@ index f269442..37d30c4 100644
 +        // that came into view at the picture's side, stood still in the frames between, and the background colour showed
 +        // between it and the next in a light line across the track and up the canyon walls, for a frame at a time. A game
 +        // whose camera is in the projection leaves what holds still at the same matrix, so the step is none, and a scene
-+        // whose paired transforms agree on no step (a cut, or most of it moving on its own) is left as it was.
++        // whose paired transforms agree on no step, nor most of its transforms by place (below), is left as it was: a
++        // cut, or most of it moving on its own.
 +        //
 +        // Nor is anything moved when the step jumped, its eye moving more than 4 times as far as the frame before's step
 +        // did, or when the frame before's scene agreed on none: a cut too small for the cut check (RT64_SKIP_CAMERA_CUTS)
@@ -3422,18 +3488,126 @@ index f269442..37d30c4 100644
 +            }
 +
 +            const hlslpp::float4x4 Identity(1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
-+            const bool agreed = (bestIndex != UINT32_MAX) && (bestCount >= 3) && ((bestCount * 2) > pairedCount);
++            bool agreed = (bestIndex != UINT32_MAX) && (bestCount >= 3) && ((bestCount * 2) > pairedCount);
++
++            // Where the pairs agree on no step, the step that brings the most of the scene's transforms each onto one of
++            // the frame before's scene's matrices, tried from each of up to 8 of them onto each of the frame before's: a
++            // game that draws its world in blocks of its own making each frame, numbered as each first comes up and with
++            // other vertices under each as the view moves, leaves few of them paired, but each block that stays in view
++            // has its matrix of the frame before at the camera's step from its own. Excitebike 64's Desert draws its
++            // ground as patches under up to 32 blocks, each a matrix of the block's place less the camera's, and its
++            // pairs agreed in a third of the race's frames: the light lines across the dunes stayed in a quarter of the
++            // frames that had them. The step is taken only when it brings more than half the scene's transforms, at
++            // least 3, onto a matrix of the frame before's, and only in a scene of up to 32 on each side, so its cost
++            // stays small. Nor is it looked for where more than 3 pairs agreed on no step: those are enough to judge by,
++            // and what they say is that the scene moves on its own, where a step found by place is one between two of
++            // a row of like objects. Excitebike 64's riders lined up at the start, as the camera swept past them, took
++            // a step of one rider's place to the next, and the start's banner was drawn in pieces in the frames between.
++            //
++            // [wcw fix] Only over transforms with a camera-independent matrix, on both sides: those are the ones moved
++            // below and the kind the port pairs, so the step is tried from, counted over and matched onto those, and
++            // "more than half" is of the scene's camera-independent ones.
++            bool stepByPlace = false;
++            if (!agreed && (pairedCount <= 3)) {
++                thread_local std::vector<uint32_t> placeTransforms;
++                placeTransforms.clear();
++                for (uint32_t m : sceneTransforms) {
++                    if (curData.worldTransformsPureValid[m] != 0) {
++                        placeTransforms.emplace_back(m);
++                    }
++                }
++
++                thread_local std::vector<uint32_t> prevSceneTransforms;
++                prevSceneTransforms.clear();
++                for (const std::pair<uint64_t, GameCallMap> &it : prevCallHashMap) {
++                    const GameCallMap &callMap = it.second;
++                    const GameIndices::Projection &projIndices = prevScene.projections[callMap.sceneProjIndex];
++                    if (!callMap.doTransformMatching || (projIndices.workloadIndex != firstPrevProjIndices.workloadIndex)) {
++                        continue;
++                    }
++
++                    const GameCall &call = firstPrevWorkload.fbPairs[projIndices.fbPairIndex].projections[projIndices.projectionIndex].gameCalls[callMap.callIndex];
++                    for (uint32_t m = call.callDesc.minWorldMatrix; m <= call.callDesc.maxWorldMatrix; m++) {
++                        const TransformGroup &group = prevData.transformGroups[prevData.worldTransformGroups[m]];
++                        if ((group.matrixId == G_EX_ID_AUTO) && (prevData.worldTransformsPureValid[m] != 0)) {
++                            prevSceneTransforms.emplace_back(m);
++                        }
++                    }
++                }
++
++                std::sort(prevSceneTransforms.begin(), prevSceneTransforms.end());
++                prevSceneTransforms.erase(std::unique(prevSceneTransforms.begin(), prevSceneTransforms.end()), prevSceneTransforms.end());
++                const uint32_t MaxPlaceTransforms = 32;
++                const uint32_t sceneCount = uint32_t(placeTransforms.size());
++                if ((sceneCount >= 3) && (sceneCount <= MaxPlaceTransforms) && !prevSceneTransforms.empty() && (prevSceneTransforms.size() <= MaxPlaceTransforms)) {
++                    // How far a step leaves a transform's matrix from the nearest of the frame before's, as stepMiss reads it.
++                    auto placeMiss = [&](const hlslpp::float4x4 &step, uint32_t m) {
++                        const hlslpp::float4x4 moved = hlslpp::mul(hlslpp::float4x4(curData.worldTransforms[m]), step);
++                        float nearest = FLT_MAX;
++                        for (uint32_t q : prevSceneTransforms) {
++                            const hlslpp::float4x4 prev = prevData.worldTransforms[q];
++                            float miss = 0.0f;
++                            float size = 0.0f;
++                            for (int r = 0; r < 4; r++) {
++                                miss = std::max(miss, float(hlslpp::length(moved[r] - prev[r])));
++                                size = std::max(size, float(hlslpp::length(prev[r])));
++                            }
++
++                            if (size > 0.0f) {
++                                nearest = std::min(nearest, miss / size);
++                            }
++                        }
++
++                        return nearest;
++                    };
++
++                    const uint32_t placeTries = std::min(sceneCount, 8U);
++                    uint32_t placeCount = 0;
++                    for (uint32_t t = 0; t < placeTries; t++) {
++                        const uint32_t c = placeTransforms[(uint64_t(t) * sceneCount) / placeTries];
++                        const hlslpp::float4x4 cur = curData.worldTransforms[c];
++                        if (fabsf(float(hlslpp::determinant(extract3x3(cur)))) < 1e-12f) {
++                            continue;
++                        }
++
++                        const hlslpp::float4x4 inverseCur = hlslpp::inverse(cur);
++                        for (uint32_t q : prevSceneTransforms) {
++                            const hlslpp::float4x4 step = hlslpp::mul(inverseCur, hlslpp::float4x4(prevData.worldTransforms[q]));
++                            uint32_t count = 0;
++                            for (uint32_t m : placeTransforms) {
++                                count += (placeMiss(step, m) < StepTolerance) ? 1 : 0;
++                            }
++
++                            if (count > placeCount) {
++                                placeCount = count;
++                                bestStep = step;
++                            }
++                        }
++                    }
++
++                    stepByPlace = (placeCount >= 3) && ((placeCount * 2) > sceneCount);
++                    agreed = stepByPlace;
++                }
++            }
++
 +            const float MaxJumpRatio = 4.0f;
 +            const float stepLength = agreed ? float(hlslpp::length(hlslpp::float3(bestStep[3].xyz))) : -1.0f;
 +            const float prevStepLength = (firstPrevWorkloadMap != nullptr) ? firstPrevWorkloadMap->viewProjections[firstPrevProj.transformsIndex].cameraStep : -1.0f;
 +            const bool jumped = (prevStepLength < 0.0f) || (stepLength > (prevStepLength * MaxJumpRatio));
 +            firstCurWorkloadMap.viewProjections[firstCurProj.transformsIndex].cameraStep = stepLength;
-+            if (agreed && !jumped && (stepMiss(Identity, bestIndex) >= (StepTolerance * 0.1f))) {
++            float stepFromIdentity = 0.0f;
++            for (int r = 0; r < 4; r++) {
++                stepFromIdentity = std::max(stepFromIdentity, float(hlslpp::length(bestStep[r] - Identity[r])));
++            }
++
++            const bool stepMoves = stepByPlace ? (stepFromIdentity >= (StepTolerance * 0.1f)) : (agreed && (stepMiss(Identity, bestIndex) >= (StepTolerance * 0.1f)));
++            if (agreed && !jumped && stepMoves) {
 +                // [wcw fix] Only a transform with a camera-independent matrix, the kind matchTransform pairs, drawn as
 +                // the paired ones the step was read from are: one without is left unpaired by design, and its drawn
-+                // matrix needn't hold the camera as theirs do. Its rigid body stays an unpaired one's: the port
-+                // decomposes only camera-independent matrices, and the next frame's pair takes this rigid body as its
-+                // frame before's, which a decomposition of the drawn matrix would make interpolate from another space.
++                // matrix needn't hold the camera as theirs do. Its rigid body stays an unpaired one's, with a step found
++                // by place too, where the web gives it one of its own already moving at the step: the port decomposes
++                // only camera-independent matrices, and the next frame's pair takes this rigid body as its frame
++                // before's, which a decomposition of the drawn matrix would make interpolate from another space.
 +                // A moved transform is blended from movedPrev componentwise instead (TransformProcessor::process()).
 +                for (uint32_t m : sceneTransforms) {
 +                    GameFrameMap::TransformMap &transformMap = firstCurWorkloadMap.transforms[m];
@@ -3451,7 +3625,7 @@ index f269442..37d30c4 100644
          if (!modifiedBuffers.empty()) {
              workloadsModified[firstCurProjIndices.workloadIndex].merge(modifiedBuffers);
          }
-@@ -745,17 +2357,160 @@ namespace RT64 {
+@@ -745,17 +2563,160 @@ namespace RT64 {
              const bool wrappedUlt = (curTile.cmt == G_TX_WRAP) && (modulo(integerUlt, curTile.maskt * 4) == modulo(expectedUlt, curTile.maskt * 4));
              const bool wrappedLrs = (curTile.cms == G_TX_WRAP) && (modulo(integerLrs, curTile.masks * 4) == modulo(expectedLrs, curTile.masks * 4));
              const bool wrappedLrt = (curTile.cmt == G_TX_WRAP) && (modulo(integerLrt, curTile.maskt * 4) == modulo(expectedLrt, curTile.maskt * 4));
@@ -3617,7 +3791,7 @@ index f269442..37d30c4 100644
          }
  
          // Check for look at matches.
-@@ -908,6 +2663,18 @@ namespace RT64 {
+@@ -908,6 +2869,18 @@ namespace RT64 {
          curTransformMap.usedPureMatrix = true;
          curWorkloadMap.prevTransformsMapped[prevTransformIndex] = true;
  
@@ -3636,7 +3810,7 @@ index f269442..37d30c4 100644
          uint64_t curVertexHash = 0;
          uint64_t prevVertexHash = 0;
          uint32_t curVertexIndex = curWorkload.drawData.worldTransformVertexIndices[curTransformIndex];
-@@ -972,9 +2739,78 @@ namespace RT64 {
+@@ -972,9 +2945,78 @@ namespace RT64 {
  
              modifiedBuffers.texcoordVelocity = true;
          }
@@ -3716,7 +3890,7 @@ index f269442..37d30c4 100644
          for (uint32_t c = 0; c < proj.gameCallCount; c++) {
              const GameCall &call = proj.gameCalls[c];
              uint32_t matrixIdHash = 0;
-@@ -1003,7 +2839,7 @@ namespace RT64 {
+@@ -1003,7 +3045,7 @@ namespace RT64 {
                  matrixIdHash = matrixIdHash * 33 ^ (uint32_t)(tileHash ^ (tileHash >> 32));
              }
  
@@ -3726,7 +3900,7 @@ index f269442..37d30c4 100644
      }
  
 diff --git a/src/hle/rt64_game_frame.h b/src/hle/rt64_game_frame.h
-index 6268223..6ce5ce0 100644
+index 6268223..6062af1 100644
 --- a/src/hle/rt64_game_frame.h
 +++ b/src/hle/rt64_game_frame.h
 @@ -52,16 +52,30 @@ namespace RT64 {
@@ -3786,7 +3960,7 @@ index 6268223..6ce5ce0 100644
          };
  
          struct LookAtMap {
-@@ -83,6 +115,10 @@ namespace RT64 {
+@@ -83,6 +115,15 @@ namespace RT64 {
          };
  
          struct WorkloadMap {
@@ -3794,10 +3968,15 @@ index 6268223..6ce5ce0 100644
 +            // frame before drew them, in pixels, its upper left's in xy and its lower right's in zw, for one that moved
 +            // and kept its textures; empty past the last that moved.
 +            std::vector<hlslpp::float4> rectMoves;
++
++            // RT64_SKIP_CAMERA_CUTS: a camera of the workload's cut to another shot (isCameraCut()), so its rects pair
++            // with none of the frame before either.
++            bool cameraCut = false;
++
              std::vector<ViewProjectionMap> viewProjections;
              std::vector<TransformMap> transforms;
              std::vector<TileMap> tiles;
-@@ -139,9 +175,12 @@ namespace RT64 {
+@@ -139,9 +180,12 @@ namespace RT64 {
          bool isSceneCompatible(const WorkloadQueue &workloadQueue, const GameScene &scene, const GameIndices::Projection &proj);
          void set(WorkloadQueue &workloadQueue, const uint32_t *workloadIndices, uint32_t indicesCount);
          void match(RenderWorker *worker, WorkloadQueue &workloadQueue, const GameFrame &prevFrame, BufferUploader *velocityUploader, bool &velocityUploaderUsed, bool &tileInterpolationUsed, bool &lookAtInterpolationUsed);
@@ -7985,7 +8164,7 @@ index 69f7847..766c932 100644
  #endif
 \ No newline at end of file
 diff --git a/src/shaders/TextureSampler.hlsli b/src/shaders/TextureSampler.hlsli
-index 9c87c10..9064ac3 100644
+index 9c87c10..68d951b 100644
 --- a/src/shaders/TextureSampler.hlsli
 +++ b/src/shaders/TextureSampler.hlsli
 @@ -19,12 +19,96 @@
@@ -8146,7 +8325,7 @@ index 9c87c10..9064ac3 100644
      // Choose the native sampler that was determined to be compatible.
      switch (nativeSampler) {
          case NATIVE_SAMPLER_WRAP_WRAP:
-@@ -138,6 +244,57 @@ float4 sampleTextureNative(Texture2D texture, uint nativeSampler, int2 texelBase
+@@ -138,6 +244,62 @@ float4 sampleTextureNative(Texture2D texture, uint nativeSampler, int2 texelBase
              return texture.SampleLevel(gNearestClampClampSampler, nativeUVCoord, 0.0f);
      }
  }
@@ -8201,10 +8380,15 @@ index 9c87c10..9064ac3 100644
 +#undef TEXTURE_CALL
 +#endif
 +}
++
++#if FILTER_BY_ALPHA
++// RT64_FILTER_BY_ALPHA: set by sampleTexture() for the levels it samples, which keep their parameters.
++static bool gFilterByAlpha;
++#endif
  
  float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool filterBilerp, bool filterAverage, bool linearFiltering, float2 uvCoord, uint tlut, bool canDecodeTMEM, uint mipLevel, bool usesHDR) {
      float2 tcScale = gpuTile.tcScale;
-@@ -150,6 +307,40 @@ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool fil
+@@ -150,6 +312,40 @@ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool fil
      float4 samples[4];
      const uint nativeSampler = rdpTile.nativeSampler;
      bool gpuTileUsesTMEM = canDecodeTMEM && gpuTileFlagRawTMEM(gpuTile.flags);
@@ -8245,7 +8429,7 @@ index 9c87c10..9064ac3 100644
      if ((nativeSampler == NATIVE_SAMPLER_NONE) || gpuTileUsesTMEM) {
  #if USE_FOR_LOOPS
          int numSamples = select_uint(filtering, 4, 1);
-@@ -168,23 +359,23 @@ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool fil
+@@ -168,23 +364,23 @@ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool fil
  #endif
      }
      else {
@@ -8275,7 +8459,61 @@ index 9c87c10..9064ac3 100644
      
      float4 sample00 = samples[0];
      if (filtering) {
-@@ -292,8 +483,6 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
+@@ -192,22 +388,40 @@ float4 sampleTextureLevel(const RDPTile rdpTile, const GPUTile gpuTile, bool fil
+         float4 sample01 = samples[1];
+         float4 sample10 = samples[2];
+         float4 sample11 = samples[3];
++#if FILTER_BY_ALPHA
++        // RT64_FILTER_BY_ALPHA: each texel's colour weighted by its alpha, so a texel the alpha leaves out (a palette's
++        // transparent green round a sprite) gives a filtered edge none of its colour. The filter is linear in its
++        // samples, so the weighted colour is the filtered premultiplied colour over the filtered alpha.
++        if (gFilterByAlpha) {
++            sample00.rgb *= sample00.a;
++            sample01.rgb *= sample01.a;
++            sample10.rgb *= sample10.a;
++            sample11.rgb *= sample11.a;
++        }
++#endif
++        float4 filtered;
+         if (linearFiltering) {
+-            return lerp(lerp(sample00, sample10, fracPart.x), lerp(sample01, sample11, fracPart.x), fracPart.y);
++            filtered = lerp(lerp(sample00, sample10, fracPart.x), lerp(sample01, sample11, fracPart.x), fracPart.y);
+         }
+         else {
+             const bool useAverage = filterAverage && all(abs(fracPart - 0.5f) <= (1.0f / LowPrecision));
+             if (filterAverage && useAverage) {
+-                return (sample00 + sample01 + sample10 + sample11) / 4.0f;
++                filtered = (sample00 + sample01 + sample10 + sample11) / 4.0f;
+             }
+             else {
+             // Originally written by ArthurCarvalho
+             // Sourced from https://www.emutalk.net/threads/emulating-nintendo-64-3-sample-bilinear-filtering-using-shaders.54215/
+                 float4 tri0 = lerp(sample00, sample10, fracPart.x) + (sample01 - sample00) * fracPart.y;
+                 float4 tri1 = lerp(sample11, sample01, 1.0f - fracPart.x) + (sample10 - sample11) * (1.0f - fracPart.y);
+-                return lerp(tri0, tri1, step(1.0f, fracPart.x + fracPart.y));
++                filtered = lerp(tri0, tri1, step(1.0f, fracPart.x + fracPart.y));
+             }
+         }
++#if FILTER_BY_ALPHA
++        if (gFilterByAlpha && (filtered.a > 0.0f)) {
++            filtered.rgb = saturate(filtered.rgb / filtered.a);
++        }
++#endif
++        return filtered;
+     }
+     else {
+         return sample00;
+@@ -232,6 +446,9 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
+     // Compensates the lack of perspective division for the UVs based on observed hardware behavior.
+     const float perspCorrectionMod = applyCorrection ? 0.5f : 1.0f;
+     float2 uvCoord = inputUV * perspCorrectionMod * float2(rdpTile.shifts, rdpTile.shiftt);
++#if FILTER_BY_ALPHA
++    gFilterByAlpha = otherMode.cvgXAlpha() || (otherMode.alphaCompare() != G_AC_NONE);
++#endif
+ 
+ #if SIMULATE_LOW_PRECISION
+     // [wcw] Not for smoothed edges: the seam ramp needs sub-texel precision.
+@@ -292,8 +509,6 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
  
      // Determine the RDP sample count and mip levels.
      if (flagHasMipmaps) {
@@ -8284,7 +8522,7 @@ index 9c87c10..9064ac3 100644
          if (nativeSampler == NATIVE_SAMPLER_NONE) {
              float2 ddxUVxScaled = ddxUVx * gpuTile.tcScale;
              float2 ddxUVyScaled = ddyUVy * gpuTile.tcScale;
-@@ -312,28 +501,7 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
+@@ -312,28 +527,7 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
              float2 ddxUVxNorm = ddxUVx / originalSize;
              float2 ddxUVyNorm = ddyUVy / originalSize;
              
@@ -8314,7 +8552,7 @@ index 9c87c10..9064ac3 100644
          }
      }
      else {
-@@ -348,6 +516,21 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
+@@ -348,6 +542,21 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
      for (uint i = 0; i < numRDPSamples; i++) {
          textureSamples[i] = sampleTextureLevel(rdpTile, gpuTile, filterBilerp, filterAverage, linearFiltering, uvCoord, tlut, canDecodeTMEM, RDPMipLevels[i], usesHDR);
      }
