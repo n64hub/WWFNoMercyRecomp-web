@@ -7,7 +7,7 @@
 # is left out, then and later. A file here can also carry a web change of the port's own: code of the forks that a
 # page can't compile.
 #
-# merged from N64Recomp-browser 22849b02ba6018fb2d6a3a0c19c092e1858d96d0
+# merged from N64Recomp-browser d428740d51d376f1e909dc6ca1fe78653deae75b
 #
 # rt64: the port's frame pairing for interpolation stays, so RT64_GAME_FRAME_WORKLOADS is off (rt64_workload_queue.h
 # refuses it): the pairing needs each workload to stay a game frame of its own. Its three target sets stay too, with the
@@ -25,6 +25,11 @@
 # (rt64_vi_renderer.cpp) and its aspect ratio source the TV's 4:3 (rt64_workload_queue.cpp), so the web's pixel aspect
 # (VI::pixelAspect(), the shape of a framebuffer's pixels on the TV) changes neither: it is passed on and divides nothing.
 # rt64_application.cpp: a device replaced keeps its window, around the port's setup logging.
+# The web's unpaired transforms held still in the world (RT64_MOVE_UNPAIRED_WITH_CAMERA, rt64_game_frame.cpp and .h) are
+# only those with a camera-independent matrix, the kind the port pairs, and are blended in a match from their moved
+# matrix to their drawn one componentwise (rt64_transform_processor.cpp), as the port's pairs that hold still are drawn
+# there, never decomposed: their rigid body stays an unpaired one's, which the next frame's pair, decomposed from
+# camera-independent matrices, starts from.
 # plume: the web's WebGPU backend and device-thread wrapper gain the port's getColorSpace() (a canvas is sRGB) and pass
 # on a queue's setName(). The examples are the port's: a page doesn't build them. So is D3D12 (plume_d3d12.cpp and .h),
 # which a page doesn't build either: the port's own answer to a removed device (scratch memory from map(), then quitting)
@@ -51,6 +56,7 @@ rt64 src/hle/rt64_application.cpp
 rt64 src/hle/rt64_framebuffer_manager.cpp
 rt64 src/hle/rt64_framebuffer_manager.h
 rt64 src/hle/rt64_game_frame.cpp
+rt64 src/hle/rt64_game_frame.h
 rt64 src/hle/rt64_present_queue.cpp
 rt64 src/hle/rt64_rdp_tmem.cpp
 rt64 src/hle/rt64_state.cpp
@@ -61,6 +67,7 @@ rt64 src/render/rt64_crt_filter.cpp
 rt64 src/render/rt64_render_target.h
 rt64 src/render/rt64_shader_library.cpp
 rt64 src/render/rt64_texture_cache.cpp
+rt64 src/render/rt64_transform_processor.cpp
 rt64 src/render/rt64_vi_renderer.cpp
 rt64 src/shaders/RasterPS.hlsl
 rt64 src/shaders/TextureSampler.hlsli

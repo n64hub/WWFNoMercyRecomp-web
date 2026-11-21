@@ -500,7 +500,7 @@ index 6999439..a05e440 100644
          // [wcw fix] Only map sections landing at their registered ram address. Revenge stores
          // its two swap-overlays right after the fixed image (rom 0x3C770/0x834A0), INSIDE the
 diff --git a/librecomp/src/recomp.cpp b/librecomp/src/recomp.cpp
-index faf5b96..033309f 100644
+index faf5b96..3911045 100644
 --- a/librecomp/src/recomp.cpp
 +++ b/librecomp/src/recomp.cpp
 @@ -38,6 +38,13 @@
@@ -626,7 +626,33 @@ index faf5b96..033309f 100644
      // Update the status register in the context
      ctx->status_reg = new_sr;
  }
-@@ -907,7 +963,12 @@ void recomp::mods::set_mod_index(const std::string &mod_game_id, const std::stri
+@@ -663,6 +719,25 @@ void run_thread_function(uint8_t* rdram, uint64_t addr, uint64_t sp, uint64_t ar
+     func(rdram, &ctx);
+ }
+ 
++uint8_t recomp::get_controller_pak_ports() {
++    if (!current_game.has_value()) {
++        return 0;
++    }
++    auto find_it = game_roms.find(current_game.value());
++    return find_it == game_roms.end() ? 0 : find_it->second.controller_pak_ports;
++}
++
++int recomp::get_controller_pak_banks(int port) {
++    if (!current_game.has_value()) {
++        return 1;
++    }
++    auto find_it = game_roms.find(current_game.value());
++    if (find_it == game_roms.end() || find_it->second.controller_pak_banks == nullptr) {
++        return 1;
++    }
++    return find_it->second.controller_pak_banks(port);
++}
++
+ void init(uint8_t* rdram, recomp_context* ctx, gpr entrypoint) {
+     // Initialize the overlays
+     recomp::overlays::init_overlays();
+@@ -907,7 +982,12 @@ void recomp::mods::set_mod_index(const std::string &mod_game_id, const std::stri
  // pointers that aren't set up yet on the port's first frames (Revenge Starrcade 2.0's per-frame hook walks an audio
  // table before the main thread relocates its offsets). Stock games keep faulting there.
  extern "C" void wcw_commit_low_user_segment(uint8_t* rdram) {
@@ -640,7 +666,7 @@ index faf5b96..033309f 100644
      if (VirtualAlloc(rdram + 0x80000000ull, 0x800000, MEM_COMMIT, PAGE_READWRITE) == nullptr) {
          fprintf(stderr, "[relink] could not map the low user segment\n");
      }
-@@ -925,6 +986,12 @@ extern "C" void wcw_map_rom_k1(uint8_t* rdram) {
+@@ -925,6 +1005,12 @@ extern "C" void wcw_map_rom_k1(uint8_t* rdram) {
      if (size == 0 || size > 0x10000000) {
          return;
      }
@@ -653,7 +679,7 @@ index faf5b96..033309f 100644
      uint8_t* dst = rdram + 0x30000000ull;
  #ifdef _WIN32
      if (VirtualAlloc(dst, size, MEM_COMMIT, PAGE_READWRITE) == nullptr) {
-@@ -950,6 +1017,16 @@ bool wait_for_game_started(uint8_t* rdram, recomp_context* context) {
+@@ -950,6 +1036,16 @@ bool wait_for_game_started(uint8_t* rdram, recomp_context* context) {
              {
                  if (!recomp::load_stored_rom(current_game.value())) {
                      ultramodern::error_handling::message_box("Error opening stored ROM! Please restart this program.");
@@ -670,7 +696,7 @@ index faf5b96..033309f 100644
                  }
  
                  auto find_it = game_roms.find(current_game.value());
-@@ -1006,6 +1083,16 @@ bool wait_for_game_started(uint8_t* rdram, recomp_context* context) {
+@@ -1006,6 +1102,16 @@ bool wait_for_game_started(uint8_t* rdram, recomp_context* context) {
                  save_type = game_entry.save_type;
                  ultramodern::init_saving(rdram);
  
